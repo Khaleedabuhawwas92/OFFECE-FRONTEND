@@ -126,113 +126,129 @@ onMounted(() => {
     </header>
 
     <div class="main-area">
-      <div v-if="errorMessage" class="alert alert--danger">
-        {{ errorMessage }}
-      </div>
-
-      <section class="section">
-        <div class="section-header">
-          <h2 class="section-title">
-            {{ form._id ? "تعديل سائق" : "إضافة سائق جديد" }}
-          </h2>
-          <button class="btn btn--secondary" @click="resetForm">
-            مسح الحقول
-          </button>
+      <div class="content-wrapper">
+        <div v-if="errorMessage" class="alert alert--danger">
+          {{ errorMessage }}
         </div>
 
-        <form class="form-grid" @submit.prevent="saveDriver">
-          <label class="form-field">
-            <span>اسم السائق *</span>
-            <input v-model="form.name" type="text" required />
-          </label>
-
-          <label class="form-field">
-            <span>رقم الهاتف</span>
-            <input v-model="form.phone" type="text" />
-          </label>
-
-          <label class="form-field">
-            <span>رقم المركبة</span>
-            <input v-model="form.vehicle_no" type="text" />
-          </label>
-
-          <!-- ✅ جديد -->
-          <label class="form-field">
-            <span>مدينة / منطقة المركبة</span>
-            <input v-model="form.vehicle_city" type="text" />
-          </label>
-
-          <label class="form-field">
-            <span>رقم الرخصة</span>
-            <input v-model="form.license_no" type="text" />
-          </label>
-
-          <label class="form-field form-field--full">
-            <span>ملاحظات</span>
-            <textarea v-model="form.notes" rows="2"></textarea>
-          </label>
-
-          <div class="form-actions">
-            <button class="btn btn--primary" type="submit" :disabled="loading">
-              💾 حفظ
+        <section class="card form-card">
+          <div class="section-header">
+            <h2 class="section-title">
+              {{ form._id ? "تعديل سائق" : "إضافة سائق جديد" }}
+            </h2>
+            <button class="btn btn--secondary" @click="resetForm">
+              مسح الحقول
             </button>
           </div>
-        </form>
 
-        <hr class="divider" />
+          <form class="form-grid" @submit.prevent="saveDriver">
+            <label class="form-field">
+              <span>اسم السائق *</span>
+              <input v-model="form.name" type="text" required />
+            </label>
 
-        <div class="section-header">
-          <h2 class="section-title">قائمة السائقين</h2>
-          <button
-            class="btn btn--primary"
-            @click="fetchDrivers"
-            :disabled="loading"
-          >
-            🔄 تحديث
-          </button>
-        </div>
+            <label class="form-field">
+              <span>رقم الهاتف</span>
+              <input v-model="form.phone" type="text" />
+            </label>
 
-        <div v-if="loading" class="status-text">جاري التحميل...</div>
+            <label class="form-field">
+              <span>رقم المركبة</span>
+              <input v-model="form.vehicle_no" type="text" />
+            </label>
 
-        <div v-else class="table-container">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>الاسم</th>
-                <th>الهاتف</th>
-                <th>رقم المركبة</th>
-                <th>مدينة المركبة</th>
-                <!-- ✅ جديد -->
-                <th>رقم الرخصة</th>
-                <th>ملاحظات</th>
-                <th>إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="d in drivers" :key="d._id">
-                <td>{{ d.name }}</td>
-                <td>{{ d.phone }}</td>
-                <td>{{ d.vehicle_no }}</td>
-                <td>{{ d.vehicle_city }}</td>
-                <!-- ✅ جديد -->
-                <td>{{ d.license_no }}</td>
-                <td>{{ d.notes }}</td>
-                <td>
-                  <button class="btn btn--secondary" @click="editDriver(d)">
-                    ✏️ تعديل
-                  </button>
-                  <button class="btn btn--secondary" @click="deleteDriver(d)">
-                    🗑 حذف
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="drivers.length === 0">
-                <td colspan="7" class="table-empty">لا يوجد سائقون مسجّلون.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+            <!-- ✅ جديد -->
+            <label class="form-field">
+              <span>مدينة / منطقة المركبة</span>
+              <input v-model="form.vehicle_city" type="text" />
+            </label>
+
+            <label class="form-field">
+              <span>رقم الرخصة</span>
+              <input v-model="form.license_no" type="text" />
+            </label>
+
+            <label class="form-field form-field--full">
+              <span>ملاحظات</span>
+              <textarea v-model="form.notes" rows="2"></textarea>
+            </label>
+
+            <div class="form-actions">
+              <button
+                class="btn btn--primary btn--save"
+                type="submit"
+                :disabled="loading"
+              >
+                💾 حفظ
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card list-card">
+          <div class="section-header">
+            <h2 class="section-title">قائمة السائقين</h2>
+            <button
+              class="btn btn--primary"
+              @click="fetchDrivers"
+              :disabled="loading"
+            >
+              🔄 تحديث
+            </button>
+          </div>
+
+          <div v-if="loading" class="status-text">جاري التحميل...</div>
+
+          <div v-else class="table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="th-name">الاسم</th>
+                  <th class="th-phone">الهاتف</th>
+                  <th class="th-vehicle">رقم المركبة</th>
+                  <th class="th-city">مدينة المركبة</th>
+                  <!-- ✅ جديد -->
+                  <th class="th-license">رقم الرخصة</th>
+                  <th class="th-notes">ملاحظات</th>
+                  <th class="th-actions">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="d in drivers" :key="d._id">
+                  <td>{{ d.name }}</td>
+                  <td>{{ d.phone }}</td>
+                  <td>{{ d.vehicle_no }}</td>
+                  <td>{{ d.vehicle_city }}</td>
+                  <!-- ✅ جديد -->
+                  <td>{{ d.license_no }}</td>
+                  <td class="td-notes">{{ d.notes }}</td>
+                  <td>
+                    <div class="actions-cell">
+                      <button
+                        class="btn btn--secondary btn--compact"
+                        @click="editDriver(d)"
+                      >
+                        ✏️ تعديل
+                      </button>
+                      <button
+                        class="btn btn--secondary btn--compact"
+                        @click="deleteDriver(d)"
+                      >
+                        🗑 حذف
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="drivers.length === 0">
+                  <td colspan="7" class="table-empty">
+                    لا يوجد سائقون مسجّلون.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </template>
@@ -255,6 +271,7 @@ onMounted(() => {
   overflow: hidden;
 }
 
+/* Header — kept exactly as original */
 .topbar {
   background: #ffffff;
   padding: 16px 24px;
@@ -302,33 +319,61 @@ onMounted(() => {
   border-color: #1976d2;
 }
 
+/* Main area & centered content wrapper */
 .main-area {
   flex: 1;
-  padding: 12px 24px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.section {
+.content-wrapper {
+  width: 100%;
+  max-width: 1450px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Cards */
+.card {
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  padding: 20px 24px;
+}
+
+.form-card {
+  margin-bottom: 20px;
+}
+
+.list-card {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
+/* Section header */
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .section-title {
   font-size: 18px;
   margin: 0;
+  font-weight: 600;
 }
 
+/* Buttons */
 .btn {
   padding: 6px 12px;
   font-size: 13px;
@@ -351,6 +396,17 @@ onMounted(() => {
   border: 1px solid #ccc;
 }
 
+.btn--save {
+  padding: 8px 24px;
+  font-size: 14px;
+  border-radius: 6px;
+}
+
+.btn--compact {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .alert--danger {
   background: #ffebee;
   padding: 10px;
@@ -366,11 +422,11 @@ onMounted(() => {
   margin-bottom: 6px;
 }
 
+/* Form grid — 3 columns on desktop */
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 20px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px 20px;
 }
 
 .form-field {
@@ -384,15 +440,40 @@ onMounted(() => {
 }
 
 .form-field span {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #444;
 }
 
 .form-field input,
 .form-field textarea {
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid #ccc;
-  padding: 6px 8px;
+  padding: 8px 10px;
   font-size: 13px;
+  font-family: inherit;
+  color: #222;
+  background: #fff;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.form-field input {
+  height: 38px;
+}
+
+.form-field textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.12);
 }
 
 .form-actions {
@@ -400,38 +481,43 @@ onMounted(() => {
   display: flex;
   justify-content: flex-start;
   gap: 8px;
+  margin-top: 4px;
 }
 
-.divider {
-  margin: 12px 0;
-  border: none;
-  border-top: 1px solid #ccc;
-}
-
+/* Table */
 .table-container {
   flex: 1;
   overflow: auto;
-  border: 1px solid #ccc;
+  border: 1px solid #e0e0e0;
   background: #fff;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
 
 .table th,
 .table td {
-  border: 1px solid #ddd;
-  padding: 8px;
+  border: 1px solid #e0e0e0;
+  padding: 10px 12px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  vertical-align: middle;
 }
 
 .table th {
   background: #f5f5f5;
-  font-weight: bold;
+  font-weight: 600;
+  color: #333;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .table tr:nth-child(even) td {
@@ -442,5 +528,62 @@ onMounted(() => {
   text-align: center;
   color: #777;
   padding: 20px;
+}
+
+/* Explicit column widths */
+.th-name {
+  width: 230px;
+}
+.th-phone {
+  width: 150px;
+}
+.th-vehicle {
+  width: 140px;
+}
+.th-city {
+  width: 160px;
+}
+.th-license {
+  width: 150px;
+}
+.th-notes {
+  width: auto;
+}
+.th-actions {
+  width: 160px;
+}
+
+.td-notes {
+  white-space: normal;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .content-wrapper {
+    padding: 16px;
+  }
+  .card {
+    padding: 16px;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .table th,
+  .table td {
+    padding: 8px;
+  }
 }
 </style>

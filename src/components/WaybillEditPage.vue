@@ -318,7 +318,7 @@ async function fetchWaybill() {
 
     form.value = {
       _id: wb._id,
-      SERIAL_NO: wb.SERIAL_NO || "",
+      SERIAL_NO: wb.waybillNumber || wb.SERIAL_NO || "",
       DATE: wb.DATE || "",
       ISSUING_PLACE: wb.ISSUING_PLACE || "",
 

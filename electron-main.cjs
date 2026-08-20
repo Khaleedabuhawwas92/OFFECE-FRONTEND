@@ -2,8 +2,10 @@
 const { app, BrowserWindow, dialog, ipcMain, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { spawn } = require("child_process");
 
 let mainWin = null;
+let serverProcess = null;
 
 function downloadToBuffer(url) {
   return new Promise((resolve, reject) => {
@@ -12,7 +14,7 @@ function downloadToBuffer(url) {
     request.on("response", (response) => {
       if (response.statusCode && response.statusCode >= 400) {
         reject(
-          new Error(`HTTP ${response.statusCode} while downloading: ${url}`)
+          new Error(`HTTP ${response.statusCode} while downloading: ${url}`),
         );
         return;
       }
@@ -92,9 +94,9 @@ async function createWindow() {
                 <li>وتأكد البورت 5173 شغال</li>
               </ul>
             </div>
-          `)
+          `),
       );
-    }
+    },
   );
 
   const isDev = !app.isPackaged;
@@ -125,7 +127,7 @@ async function createWindow() {
               <p>لازم تعمل build:</p>
               <pre>npm run build</pre>
             </div>
-          `)
+          `),
       );
       return;
     }
@@ -295,7 +297,71 @@ ipcMain.handle("save-pdf", async (event, { url, defaultName }) => {
   }
 });
 
+function startBackend() {
+  if (serverProcess) return;
+
+  // In dev mode, backend is managed by npm scripts via concurrently
+  if (process.env.VITE_DEV_SERVER_URL) {
+    console.log(
+      "ℹ️ Dev mode detected: backend managed by npm scripts, skipping spawn.",
+    );
+    return;
+  }
+
+  const serverDir = path.join(__dirname, "server");
+  const serverScript = path.join(serverDir, "server.js");
+
+  if (!fs.existsSync(serverScript)) {
+    console.error("❌ Backend script not found:", serverScript);
+    return;
+  }
+
+  console.log("🚀 Starting backend server:", serverScript);
+
+  serverProcess = spawn("node", ["server.js"], {
+    cwd: serverDir,
+    env: { ...process.env, PORT: "4000" },
+    stdio: "pipe",
+  });
+
+  console.log("🚀 Backend process started, PID:", serverProcess.pid);
+
+  serverProcess.stdout.on("data", (data) =>
+    console.log("[BACKEND STDOUT]", data.toString().trim()),
+  );
+  serverProcess.stderr.on("data", (data) =>
+    console.error("[BACKEND STDERR]", data.toString().trim()),
+  );
+
+  serverProcess.on("close", (code) => {
+    console.log("⚠️ Backend process exited with code", code);
+    serverProcess = null;
+  });
+
+  serverProcess.on("error", (err) => {
+    console.error("❌ Backend process error:", err);
+    serverProcess = null;
+  });
+}
+
+function stopBackend() {
+  if (serverProcess) {
+    console.log("🛑 Stopping backend process, PID:", serverProcess.pid);
+    try {
+      serverProcess.kill("SIGTERM");
+    } catch (e) {
+      console.error("Error killing backend:", e);
+    }
+    serverProcess = null;
+  }
+}
+
 app.whenReady().then(async () => {
+  startBackend();
+
+  // Wait briefly for backend to start before opening window
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
   await createWindow();
 
   app.on("activate", async () => {
@@ -304,5 +370,6 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  stopBackend();
   if (process.platform !== "darwin") app.quit();
 });

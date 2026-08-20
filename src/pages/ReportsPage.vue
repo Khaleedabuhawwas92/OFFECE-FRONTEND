@@ -289,7 +289,7 @@ function exportInvoicesCsv() {
 function exportWaybillsCsv() {
   const rows = filteredWaybills.value;
   const header = [
-    "SERIAL_NO",
+    "waybillNumber",
     "DATE",
     "CONSIGNOR_NAME",
     "CONSIGNEE_NAME",
@@ -302,7 +302,7 @@ function exportWaybillsCsv() {
     header.join(","),
     ...rows.map((r) => {
       const obj = {
-        SERIAL_NO: r?.SERIAL_NO ?? "",
+        waybillNumber: r?.waybillNumber || r?.SERIAL_NO || "",
         DATE: r?.DATE ?? "",
         CONSIGNOR_NAME: r?.CONSIGNOR_NAME ?? "",
         CONSIGNEE_NAME: r?.CONSIGNEE_NAME ?? "",

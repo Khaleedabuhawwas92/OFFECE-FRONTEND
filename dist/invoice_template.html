@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>فاتورة / Invoice</title>
+
+    <link
+      href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      @page {
+        size: A4 portrait;
+        margin: 8mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: "Simplified Arabic", "Traditional Arabic", Tahoma, Arial,
+          sans-serif;
+        font-size: 12px;
+        background: #fff;
+      }
+
+      .wrapper-invoice {
+        display: flex;
+        justify-content: center;
+        padding: 0;
+      }
+
+      .besm {
+        font-family: "Amiri", "Traditional Arabic", "Simplified Arabic", serif;
+        font-size: 16px;
+        font-weight: 700;
+        text-align: center;
+        direction: rtl;
+        margin-bottom: 2mm;
+        letter-spacing: 0.5px;
+      }
+
+      .invoice {
+        width: 194mm;
+        height: 281mm;
+        background: #fff;
+        border: 1px solid #000;
+        padding: 5mm;
+        margin: 0;
+
+        /* ✅ لا تقص المحتوى داخل المعاينة */
+        overflow: visible;
+
+        display: flex;
+        flex-direction: column;
+      }
+      .invoice-information.one-line p {
+        margin: 0 0 2mm 0;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .invoice-header-ar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 6mm;
+        margin-bottom: 3mm;
+      }
+
+      .header-ar {
+        flex: 1;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .header-ar.right {
+        text-align: right;
+        direction: rtl;
+      }
+      .header-ar.left {
+        text-align: left;
+        direction: ltr;
+      }
+
+      .company-ar,
+      .company-en {
+        font-family: "Cairo", "Simplified Arabic", Tahoma, Arial, sans-serif;
+        font-weight: 800;
+        font-size: 22px;
+        margin-bottom: 2px;
+      }
+
+      .addr-ar,
+      .addr-en {
+        font-size: 13px;
+        line-height: 1.3;
+        font-weight: 700;
+      }
+
+      .header-logo {
+        flex: 0 0 auto;
+        text-align: center;
+      }
+      .header-logo img {
+        width: 115px;
+        height: 115px;
+        object-fit: contain;
+        display: block;
+      }
+
+      .invoice-title-ar {
+        margin-top: 2mm;
+        font-size: 14px;
+        font-weight: 800;
+        text-align: center;
+        direction: rtl;
+      }
+      .invoice-title-en {
+        font-size: 13px;
+        font-weight: 700;
+        text-align: center;
+        direction: ltr;
+        margin-top: 1px;
+      }
+
+      .invoice-information {
+        display: flex;
+        justify-content: space-between;
+        gap: 6mm;
+        margin-bottom: 3mm;
+      }
+
+      .invoice-information p {
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-bottom: 1mm;
+      }
+
+      .invoice-information b {
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .invoice-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .table-area {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+
+      table.table {
+        width: 100%;
+        height: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .invoice-body .table {
+        border-collapse: collapse;
+        width: 100%;
+        border: 3px solid #000;
+      }
+
+      .invoice-body .table th,
+      .invoice-body .table td {
+        border: 1.5px solid #000;
+        padding: 11px 4px;
+        vertical-align: top;
+      }
+
+      .invoice-body .table thead th {
+        border: 2px solid #000;
+        font-weight: 800;
+        font-size: 14px;
+        text-align: center;
+      }
+
+      table.table th:first-child,
+      table.table td:first-child {
+        width: 100%;
+        text-align: right;
+        direction: rtl;
+        padding-right: 6px;
+      }
+
+      table.table th:last-child,
+      table.table td:last-child {
+        width: 26%;
+        text-align: center;
+        direction: ltr;
+        white-space: nowrap;
+      }
+      .invoice-information .company-line {
+        font-size: 13px; /* أصغر شوي */
+        font-weight: 800;
+        margin-bottom: 2mm;
+
+        max-width: 50mm; /* ⬅️ أهم سطر */
+        white-space: normal; /* يسمح بالنزول */
+        word-break: break-word; /* يكسر الكلمات الطويلة */
+        line-height: 1;
+      }
+
+      /* =========================
+         ✅ تثبيت السائق/اللوحة تحت + إبقاء البنود والملاحظات فوقهم
+      ========================== */
+      .details-cell {
+        text-align: right;
+        direction: rtl;
+        padding: 6px;
+        line-height: 1.6;
+
+        display: grid;
+        grid-template-rows: 1fr auto; /* top expands, bottom fixed */
+        height: 100%;
+        min-height: 0;
+      }
+
+      .details-top {
+        min-height: 0;
+      }
+
+      /* ✅ جدول البنود: خليها تتمدد، وإذا زادت بالمعاينة يعمل scroll */
+      .items-wrap {
+        max-height: 92mm;
+        overflow: auto;
+        padding-bottom: 1mm;
+      }
+
+      .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        margin-top: 2mm;
+      }
+
+      .items-table th,
+      .items-table td {
+        border: 1px solid #000;
+        padding: 3px 3px;
+        font-size: 11px;
+      }
+
+      .items-table th {
+        background: #f5f5f5;
+        font-weight: 800;
+        text-align: center;
+      }
+
+      .items-table td:first-child {
+        text-align: right;
+        direction: rtl;
+        font-weight: 700;
+        white-space: normal;
+        word-break: break-word;
+      }
+
+      .items-table td:not(:first-child) {
+        text-align: center;
+        direction: ltr;
+        white-space: nowrap;
+      }
+
+      .items-table thead th:nth-child(1) {
+        width: 44%;
+      }
+      .items-table thead th:nth-child(2) {
+        width: 14%;
+      }
+      .items-table thead th:nth-child(3) {
+        width: 10%;
+      }
+      .items-table thead th:nth-child(4) {
+        width: 14%;
+      }
+      .items-table thead th:nth-child(5) {
+        width: 18%;
+      }
+
+      /* ✅ ملاحظات تحت جدول البنود */
+      .notes-block {
+        margin-top: 2mm;
+        padding-top: 2mm;
+        border-top: 1px dashed #000;
+        font-weight: 700;
+      }
+      .notes-label {
+        font-weight: 900;
+      }
+      .notes-value {
+        font-weight: 700;
+      }
+
+      .details-bottom {
+        margin-top: 2mm;
+        display: grid; /* بدل flex */
+        grid-template-columns: 1fr 1fr;
+        gap: 10mm;
+        padding-top: 2mm;
+        border-top: 1px dashed #000;
+        align-items: start;
+        text-align: center; /* ⬅️ توسيط عام */
+      }
+
+      .meta-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center; /* ⬅️ يوسّط الهيدر مع القيم */
+      }
+
+      /* العنوان */
+      .meta-label {
+        font-weight: 800;
+        text-align: center;
+        margin-bottom: 2px;
+      }
+      .meta-value {
+        width: 100%;
+        text-align: center; /* ⬅️ توسيط القيم */
+        font-weight: 700;
+        white-space: normal;
+      }
+
+      /* كل عنصر تحت الثاني */
+      .meta-value.list .v-line {
+        display: block;
+        margin-bottom: 2px;
+        line-height: 1.6;
+        text-align: center;
+      }
+
+      /* ✅ رقم اللوحة LTR لكن بالنص */
+      .meta-value.vehicle {
+        direction: ltr;
+      }
+      .meta-value.vehicle .v-line {
+        direction: ltr;
+        text-align: center; /* ⬅️ مهم */
+      }
+
+      /* ✅ وإذا أنت بترسل <br> بدل v-line */
+      .meta-value.list br {
+        content: "";
+        display: block;
+        margin-bottom: 2px;
+      }
+
+      /* ✅ لوحات/أرقام: خلّيها LTR */
+      .meta-value.list.vehicle {
+        direction: ltr;
+        text-align: left;
+      }
+
+      .amount-cell {
+        vertical-align: top;
+        text-align: center;
+        direction: ltr;
+        font-weight: 700;
+      }
+
+      .bottom-area {
+        margin-top: 3mm;
+        padding-top: 2mm;
+      }
+
+      .total-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-top: 1px solid #000;
+        padding-top: 2mm;
+        font-size: 12px;
+      }
+
+      .total-line.single-row {
+        display: flex;
+        justify-content: space-between; /* كل واحد بطرف */
+        align-items: center;
+      }
+
+      .total-label {
+        direction: rtl;
+        font-weight: 800;
+        font-size: 20px;
+      }
+
+      .total-value.single {
+        direction: ltr;
+        font-weight: 800;
+        text-align: left;
+        font-size: 20px;
+      }
+      .total-value {
+        direction: ltr;
+        font-weight: 700;
+      }
+
+      .invoice-total-amount {
+        margin-top: 2mm;
+        font-weight: 800;
+        font-size: 13px;
+        text-align: left;
+        direction: ltr;
+      }
+
+      .invoice-footer {
+        margin-top: 3mm;
+        text-align: center;
+      }
+      .footer-ar {
+        font-family: "Cairo", "Simplified Arabic", Tahoma, Arial, sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        margin: 0;
+      }
+      .footer-en {
+        font-family: "Inter", Arial, sans-serif;
+        font-size: 11px;
+        margin: 1mm 0 0;
+      }
+
+      /* =========================
+         ✅ split دينار/فلس
+      ========================== */
+      .amount-head-split {
+        display: flex;
+        width: 100%;
+        justify-content: space-around;
+        direction: rtl;
+        font-weight: 800;
+        flex-direction: row-reverse;
+      }
+
+      .amount-split {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        direction: ltr;
+        border: 1.5px solid #000;
+        box-sizing: border-box;
+      }
+
+      .amount-split > span {
+        width: 50%;
+        display: flex;
+        align-items: baseline;
+        justify-content: center;
+        padding: 6px 0;
+        font-weight: 800;
+        box-sizing: border-box;
+      }
+
+      .amount-split > span:first-child {
+        border-right: 1.5px solid #000;
+      }
+
+      .total-value .amount-split {
+        border: none;
+      }
+      .total-value .amount-split > span:first-child {
+        border-right: 1px solid #000;
+      }
+
+      @media print {
+        body {
+          background: #fff !important;
+        }
+        .invoice,
+        .page,
+        .wrapper-invoice {
+          border: none !important;
+        }
+
+        /* ✅ بالطباعة لا تعمل scroll */
+        .items-wrap {
+          max-height: none !important;
+          overflow: visible !important;
+        }
+
+        .invoice-body .table,
+        .invoice-body .table th,
+        .invoice-body .table td {
+          border-color: #000 !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <section class="wrapper-invoice">
+      <div class="invoice">
+        <!-- HEADER -->
+        <div class="invoice-header-ar">
+          <div class="header-ar right">
+            <div class="company-ar">مؤسسة شرق العالم العربي</div>
+            <div class="company-ar">للنقل البري</div>
+            <div class="addr-ar">
+              عمّان - أبو علندا - بجانب البنك الإسلامي<br />
+              تلفاكس: 4162136 / 4162133<br />
+              ص.ب 44 رمز بريدي 11592 عمّان - الأردن
+            </div>
+          </div>
+
+          <div class="header-logo">
+            <div class="besm">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
+            <img src="./images/company-logo.png" alt="logo" />
+            <div class="invoice-title-ar">فاتورة نقداً</div>
+            <div class="invoice-title-en">Credit Invoice</div>
+          </div>
+
+          <div class="header-ar left">
+            <div class="company-en">ARAB WORLD EAST EST.</div>
+            <div class="company-en">Land Transportation</div>
+            <div class="addr-en">
+              Amman - Abu Alanda Near Islamic Bank<br />
+              Telfax 4162136 P.O. Box 44<br />
+              Abu Alanda - Jordan 11592
+            </div>
+          </div>
+        </div>
+
+        <!-- Invoice info -->
+        <div class="invoice-information">
+          <p class="company-line">الشركة: {{COMPANY}}</p>
+
+          <p><b>رقم الفاتورة:</b> {{INVOICE_NO}}</p>
+
+          <p><b>التاريخ:</b> {{DATE}}</p>
+        </div>
+
+        <!-- BODY -->
+        <div class="invoice-body">
+          <div class="table-area">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>التفاصيل</th>
+                  <th class="amount-head">
+                    <div class="amount-head-split">
+                      <span>دينار</span>
+                      <span>فلس</span>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr class="details-row">
+                  <td class="details-cell">
+                    <div class="details-top">
+                      <div class="items-wrap">
+                        <table class="items-table">
+                          <thead>
+                            <tr>
+                              <th>التفصيلة</th>
+                              <th>المبلغ</th>
+                              <th>العملة</th>
+                              <th>نسبة التحويل</th>
+                              <th>المبلغ (JOD)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {{ITEMS_ROWS}}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div class="notes-block">
+                        <span class="notes-label">ملاحظات:</span>
+                        <span class="notes-value">{{NOTES}}</span>
+                      </div>
+                    </div>
+
+                    <div class="details-bottom">
+                      <div class="meta-block">
+                        <div class="meta-label">اسم السائق</div>
+                        <div class="meta-value list">{{DRIVER_NAME}}</div>
+                      </div>
+
+                      <div class="meta-block">
+                        <div class="meta-label">رقم اللوحة</div>
+                        <div class="meta-value list vehicle">
+                          {{VEHICLE_NO}}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td class="amount-cell">
+                    <div class="amount-split">
+                      <span class="dinar">{{DINAR}}</span>
+                      <span class="fils">{{FILS}}</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="bottom-area">
+            <div class="total-line single-row">
+              <div class="total-label">المجموع</div>
+              <div class="total-value single" dir="ltr">
+                Total: {{TOTAL_DINAR}}.{{TOTAL_FILS}}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="invoice-footer">
+          <p class="footer-ar">شاكرين حسن تعاونكم معنا</p>
+          <p class="footer-en">
+            With our thanks and appreciation for your cooperation
+          </p>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

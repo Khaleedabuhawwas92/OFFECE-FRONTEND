@@ -1,0 +1,1323 @@
+// server/server.js
+require("dotenv").config({
+  path: require("path").join(__dirname, "..", ".env"),
+});
+console.log("ENV FILE LOADED. EINV_URL =", process.env.EINV_URL);
+
+const path = require("path");
+const fs = require("fs");
+const cors = require("cors");
+const puppeteer = require("puppeteer");
+const axios = require("axios");
+const express = require("express");
+const mongoose = require("mongoose");
+const { spawn } = require("child_process");
+const { randomUUID } = require("crypto");
+
+const Invoice = require("./models/Invoice");
+const Waybill = require("./models/Waybill");
+const Driver = require("./models/Driver");
+const Consignor = require("./models/Consignor");
+const Consignee = require("./models/Consignee");
+const Counter = require("./models/Counter");
+const Voucher = require("./models/Voucher");
+
+const app = express();
+
+/* =======================
+   CORS + JSON
+   ✅ لا تستخدم app.options("*") ولا app.options("/*") عشان Express 5
+======================= */
+app.use(
+  cors({
+    origin: "*", // شددها لاحقاً إذا بدك
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+app.use(express.json({ limit: "10mb" }));
+
+app.use("/images", express.static(path.join(__dirname, "images")));
+app.use("/templates", express.static(path.join(__dirname, "templates")));
+
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017";
+const MONGO_DBNAME = process.env.MONGO_DBNAME || "waybills_db";
+const PORT = Number(process.env.PORT || 4000);
+
+console.log("MONGO_URI:", MONGO_URI);
+console.log("MONGO_DBNAME:", MONGO_DBNAME);
+
+/* ======================= Mongo ======================= */
+mongoose
+  .connect(MONGO_URI, { dbName: MONGO_DBNAME })
+  .then(() => console.log("✅ Connected to MongoDB"))
+  .catch((err) => console.error("❌ MongoDB connection error:", err));
+
+/* ======================= BOT ======================= */
+let botProcess = null;
+
+function startBot() {
+  if (botProcess) return;
+
+  const botPath = path.join(__dirname, "..", "bot", "bot.py");
+  botProcess = spawn("python", [botPath], {
+    cwd: path.join(__dirname, "..", "bot"),
+    env: { ...process.env },
+  });
+
+  console.log("🚀 bot.py started, PID:", botProcess.pid);
+
+  botProcess.stdout.on("data", (data) =>
+    console.log("[BOT STDOUT]", data.toString()),
+  );
+  botProcess.stderr.on("data", (data) =>
+    console.error("[BOT STDERR]", data.toString()),
+  );
+
+  botProcess.on("close", (code) => {
+    console.log("⚠️ bot.py exited with code", code);
+    botProcess = null;
+  });
+}
+startBot();
+
+/* ======================= Helpers ======================= */
+function toIdStr(x) {
+  if (!x) return "";
+  return String(x?._id ?? x?.id ?? x?.$oid ?? x);
+}
+
+function safeNumber(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function escapeXml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function asIsoDate(d) {
+  const x = String(d || "").trim();
+  if (!x) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return x;
+
+  const m = x.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+
+  return x;
+}
+
+/* =======================
+   SERIAL HELPERS (YYMMDD-XXXX, per-month)
+======================= */
+function datePrefixFromDate(d = new Date()) {
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}${mm}${dd}`;
+}
+
+function monthPrefixFromDate(d = new Date()) {
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${yy}${mm}`;
+}
+
+async function getNextSerialForMonth(model, field, monthPrefix, datePrefix) {
+  const counterKey = `${field}_${monthPrefix}`;
+
+  // Baseline from existing records for this month prefix (YYMM) — legacy catch-up hint only.
+  // This read is NOT used after the increment; the final serial comes from ONE atomic op below.
+  const regex = new RegExp(`^${monthPrefix}\\d{2}-`);
+  const existing = await model
+    .find({ [field]: regex })
+    .select(field)
+    .lean();
+  let maxExisting = 0;
+  for (const doc of existing) {
+    const val = doc[field] || "";
+    const m = val.match(new RegExp(`^${monthPrefix}\\d{2}-(\\d+)$`));
+    if (m) maxExisting = Math.max(maxExisting, parseInt(m[1], 10));
+  }
+
+  // ONE atomic counter operation: seq = max(current counter, maxExisting) + 1
+  // Concurrent calls serialize on the counter document => unique numbers.
+  const counter = await Counter.findOneAndUpdate(
+    { key: counterKey },
+    [
+      {
+        $set: {
+          key: counterKey,
+          seq: { $add: [{ $max: ["$seq", maxExisting] }, 1] },
+        },
+      },
+    ],
+    { new: true, upsert: true },
+  );
+
+  return `${datePrefix}-${String(counter.seq).padStart(4, "0")}`;
+}
+
+async function peekNextSerialForMonth(model, field, monthPrefix, datePrefix) {
+  const counterKey = `${field}_${monthPrefix}`;
+  const counter = await Counter.findOne({ key: counterKey });
+  const counterSeq = Number(counter?.seq || 0) + 1;
+
+  // Query existing records for this month prefix (YYMM)
+  const regex = new RegExp(`^${monthPrefix}\\d{2}-`);
+  const existing = await model
+    .find({ [field]: regex })
+    .select(field)
+    .lean();
+  let maxExisting = 0;
+  for (const doc of existing) {
+    const val = doc[field] || "";
+    const m = val.match(new RegExp(`^${monthPrefix}\\d{2}-(\\d+)$`));
+    if (m) maxExisting = Math.max(maxExisting, parseInt(m[1], 10));
+  }
+
+  const seq = Math.max(counterSeq, maxExisting + 1);
+  return `${datePrefix}-${String(seq).padStart(4, "0")}`;
+}
+
+/* =======================
+   SERIAL (Waybill) — per-month
+======================= */
+async function reserveNextWaybillSerial(docDate = new Date()) {
+  const monthPrefix = monthPrefixFromDate(docDate);
+  const datePrefix = datePrefixFromDate(docDate);
+  return getNextSerialForMonth(
+    Waybill,
+    "waybillNumber",
+    monthPrefix,
+    datePrefix,
+  );
+}
+
+async function peekNextWaybillSerial(docDate = new Date()) {
+  const monthPrefix = monthPrefixFromDate(docDate);
+  const datePrefix = datePrefixFromDate(docDate);
+  return peekNextSerialForMonth(
+    Waybill,
+    "waybillNumber",
+    monthPrefix,
+    datePrefix,
+  );
+}
+
+/* =======================
+   SERIAL (Invoice) — per-month
+======================= */
+async function reserveNextInvoiceNumber(docDate = new Date()) {
+  const monthPrefix = `INV-${monthPrefixFromDate(docDate)}`;
+  const datePrefix = `INV-${datePrefixFromDate(docDate)}`;
+  return getNextSerialForMonth(
+    Invoice,
+    "invoice_number",
+    monthPrefix,
+    datePrefix,
+  );
+}
+
+async function peekNextInvoiceNumber(docDate = new Date()) {
+  const monthPrefix = `INV-${monthPrefixFromDate(docDate)}`;
+  const datePrefix = `INV-${datePrefixFromDate(docDate)}`;
+  return peekNextSerialForMonth(
+    Invoice,
+    "invoice_number",
+    monthPrefix,
+    datePrefix,
+  );
+}
+
+app.get("/api/waybills/next-serial", async (req, res) => {
+  try {
+    const docDate = req.query.date ? new Date(req.query.date) : new Date();
+    const nextSerial = await peekNextWaybillSerial(docDate);
+    return res.json({ SERIAL_NO: nextSerial, waybillNumber: nextSerial });
+  } catch (e) {
+    return res
+      .status(500)
+      .json({ message: "Failed to peek serial", error: String(e) });
+  }
+});
+
+app.get("/api/invoices/next-serial", async (req, res) => {
+  try {
+    const docDate = req.query.date ? new Date(req.query.date) : new Date();
+    const nextNumber = await peekNextInvoiceNumber(docDate);
+    return res.json({ invoice_number: nextNumber });
+  } catch (e) {
+    return res
+      .status(500)
+      .json({ message: "Failed to peek invoice serial", error: String(e) });
+  }
+});
+
+/* =======================
+   SERIAL (Voucher)
+   مثال: VC-260YYMM-0001
+======================= */
+function voucherPrefixForNow(d = new Date()) {
+  return `VC-${serialPrefixForNow(d)}`;
+}
+
+async function peekNextVoucherSerial() {
+  const prefix = voucherPrefixForNow(new Date());
+  const key = `VOUCHER_${prefix}`;
+  const counter = await Counter.findOne({ key });
+  const current = Number(counter?.seq || 0);
+  const next = current + 1;
+  const seq = String(next).padStart(4, "0");
+  return `${prefix}-${seq}`;
+}
+
+async function reserveNextVoucherSerial() {
+  const prefix = voucherPrefixForNow(new Date());
+  const key = `VOUCHER_${prefix}`;
+  const counter = await Counter.findOneAndUpdate(
+    { key },
+    { $inc: { seq: 1 }, $setOnInsert: { key } },
+    { new: true, upsert: true },
+  );
+  const seq = String(counter.seq).padStart(4, "0");
+  return `${prefix}-${seq}`;
+}
+
+app.get("/api/vouchers/next-serial", async (req, res) => {
+  try {
+    const nextSerial = await peekNextVoucherSerial();
+    return res.json({ serial_no: nextSerial });
+  } catch (e) {
+    return res
+      .status(500)
+      .json({ message: "Failed to peek voucher serial", error: String(e) });
+  }
+});
+
+/* ======================= BOT STATUS ======================= */
+app.get("/api/bot-status", (req, res) => {
+  res.json({ running: !!botProcess, pid: botProcess ? botProcess.pid : null });
+});
+
+/* ======================= INVOICES ======================= */
+app.get("/api/invoices", async (req, res) => {
+  try {
+    const { limit = 100 } = req.query;
+    const invoices = await Invoice.find({})
+      .sort({ created_at: -1 })
+      .limit(Number(limit));
+    res.json(invoices);
+  } catch (err) {
+    console.error("Error getting invoices:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// فواتير مفتوحة لطرف
+app.get("/api/invoices/open", async (req, res) => {
+  try {
+    const company = String(req.query.company || "").trim();
+    if (!company) return res.status(400).json({ error: "company is required" });
+
+    const invs = await Invoice.find({ company }).sort({ created_at: -1 });
+    const invIds = invs.map((x) => x._id);
+
+    const vchs = await Voucher.find(
+      { "allocations.invoice_id": { $in: invIds } },
+      { allocations: 1 },
+    ).lean();
+
+    const paidMap = new Map();
+    for (const v of vchs) {
+      for (const a of Array.isArray(v.allocations) ? v.allocations : []) {
+        const id = toIdStr(a.invoice_id);
+        if (!id) continue;
+        paidMap.set(id, (paidMap.get(id) || 0) + safeNumber(a.amount, 0));
+      }
+    }
+
+    const out = invs.map((inv) => {
+      const id = toIdStr(inv._id);
+      const total = safeNumber(inv.value_jod, 0);
+      const paid = safeNumber(paidMap.get(id), 0);
+      const remaining = Math.max(0, Number((total - paid).toFixed(3)));
+      return {
+        ...inv.toObject(),
+        paid_jod: Number(paid.toFixed(3)),
+        remaining_jod: remaining,
+      };
+    });
+
+    res.json(out.filter((x) => safeNumber(x.remaining_jod, 0) > 0));
+  } catch (e) {
+    console.error("GET /api/invoices/open error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
+function normalizeEInv(raw) {
+  const x = raw && typeof raw === "object" ? raw : {};
+  return {
+    invoiceType: String(x.invoiceType || "EXPORT").toUpperCase(),
+    incomeSourceSeq: String(
+      x.incomeSourceSeq || process.env.EINV_INCOME_SOURCE_SEQ || "",
+    ).trim(),
+    buyerName: String(x.buyerName || "").trim(),
+    buyerTaxNo: String(x.buyerTaxNo || "").trim(),
+    buyerPhone: String(x.buyerPhone || "").trim(),
+    buyerCity: String(x.buyerCity || "عمان").trim() || "عمان",
+    buyerPostalCode: String(x.buyerPostalCode || "").trim(),
+    currency: String(x.currency || "JOD").toUpperCase() || "JOD",
+  };
+}
+
+app.post("/api/invoices", async (req, res) => {
+  try {
+    const raw = req.body.driver_ids ?? req.body.driver_id ?? [];
+    const driverIds = (Array.isArray(raw) ? raw : [raw])
+      .map(toIdStr)
+      .filter(Boolean);
+
+    let driverNamesSnapshot = [];
+    let driverVehiclesSnapshot = [];
+
+    if (driverIds.length) {
+      const drivers = await Driver.find(
+        { _id: { $in: driverIds } },
+        { name: 1, vehicle_no: 1, vehicle_city: 1 },
+      );
+      driverNamesSnapshot = drivers.map((d) => d?.name).filter(Boolean);
+      driverVehiclesSnapshot = drivers
+        .map((d) => d?.vehicle_no)
+        .filter(Boolean);
+    }
+
+    const rawItems = req.body.items ?? [];
+    const items = Array.isArray(rawItems)
+      ? rawItems
+          .map((it) => {
+            const desc = String(it?.desc ?? "").trim();
+            const amount = Number(it?.amount ?? 0);
+            const currency = String(it?.currency ?? "JOD").trim() || "JOD";
+            const rate_to_jod = Number(it?.rate_to_jod ?? 1);
+
+            const safeAmount = Number.isFinite(amount) ? amount : 0;
+            const safeRate = Number.isFinite(rate_to_jod) ? rate_to_jod : 1;
+            const amount_jod = Number((safeAmount * safeRate).toFixed(3));
+
+            return {
+              desc,
+              amount: Number(safeAmount.toFixed(3)),
+              currency,
+              rate_to_jod: Number(safeRate.toFixed(4)),
+              amount_jod,
+            };
+          })
+          .filter((x) => x.desc || Number(x.amount_jod || 0) !== 0)
+      : [];
+
+    const itemsTotal = Number(
+      items
+        .reduce((sum, it) => sum + (Number(it.amount_jod) || 0), 0)
+        .toFixed(3),
+    );
+
+    const finalValueJod =
+      items.length > 0 ? itemsTotal : safeNumber(req.body.value_jod, 0);
+    const einv = normalizeEInv(req.body.einv);
+
+    const inv = await Invoice.create({
+      invoice_number: await reserveNextInvoiceNumber(
+        req.body.date ? new Date(req.body.date) : new Date(),
+      ),
+      date: req.body.date,
+      company: req.body.company,
+
+      consignor_id: req.body.consignor_id || undefined,
+
+      driver_ids: driverIds,
+      driver_names_snapshot: driverNamesSnapshot,
+      vehicle_numbers_snapshot: driverVehiclesSnapshot,
+
+      items,
+      value_jod: finalValueJod,
+
+      notes: req.body.notes || "",
+      details_line1: req.body.details_line1 || "",
+      details_line2: req.body.details_line2 || "",
+      extra_details: req.body.extra_details || "",
+
+      einv,
+    });
+
+    res.json(inv);
+  } catch (e) {
+    if (String(e?.code) === "11000") {
+      return res.status(409).json({
+        error: "DuplicateKey",
+        message: "Serial conflict: duplicate invoice_number",
+      });
+    }
+    console.error("POST /api/invoices error:", e);
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: e?.message || String(e),
+      name: e?.name,
+    });
+  }
+});
+
+app.put("/api/invoices/:id", async (req, res) => {
+  try {
+    const rawDrivers = req.body.driver_ids ?? req.body.driver_id ?? undefined;
+
+    const driverIds =
+      rawDrivers === undefined
+        ? undefined
+        : (Array.isArray(rawDrivers) ? rawDrivers : [rawDrivers])
+            .map(toIdStr)
+            .filter(Boolean);
+
+    let driverNamesSnapshot = undefined;
+    let driverVehiclesSnapshot = undefined;
+
+    if (driverIds && driverIds.length) {
+      const drivers = await Driver.find(
+        { _id: { $in: driverIds } },
+        { name: 1, vehicle_no: 1 },
+      );
+      driverNamesSnapshot = drivers.map((d) => d?.name).filter(Boolean);
+      driverVehiclesSnapshot = drivers
+        .map((d) => d?.vehicle_no)
+        .filter(Boolean);
+    }
+
+    const rawItems = req.body.items;
+    let items = undefined;
+    let itemsTotal = undefined;
+
+    if (rawItems !== undefined) {
+      items = Array.isArray(rawItems)
+        ? rawItems
+            .map((it) => {
+              const desc = String(it?.desc ?? "").trim();
+              const amount = Number(it?.amount ?? 0);
+              const currency = String(it?.currency ?? "JOD").trim() || "JOD";
+              const rate_to_jod = Number(it?.rate_to_jod ?? 1);
+
+              const safeAmount = Number.isFinite(amount) ? amount : 0;
+              const safeRate = Number.isFinite(rate_to_jod) ? rate_to_jod : 1;
+              const amount_jod = Number((safeAmount * safeRate).toFixed(3));
+
+              return {
+                desc,
+                amount: Number(safeAmount.toFixed(3)),
+                currency,
+                rate_to_jod: Number(safeRate.toFixed(4)),
+                amount_jod,
+              };
+            })
+            .filter((x) => x.desc || Number(x.amount_jod || 0) !== 0)
+        : [];
+
+      itemsTotal = Number(
+        items
+          .reduce((sum, it) => sum + (Number(it.amount_jod) || 0), 0)
+          .toFixed(3),
+      );
+    }
+
+    const payload = {
+      ...(req.body.invoice_number
+        ? { invoice_number: req.body.invoice_number }
+        : {}),
+      ...(req.body.date !== undefined ? { date: req.body.date } : {}),
+      ...(req.body.company !== undefined ? { company: req.body.company } : {}),
+      ...(req.body.consignor_id !== undefined
+        ? { consignor_id: req.body.consignor_id || undefined }
+        : {}),
+      ...(req.body.notes !== undefined ? { notes: req.body.notes || "" } : {}),
+      ...(req.body.details_line1 !== undefined
+        ? { details_line1: req.body.details_line1 || "" }
+        : {}),
+      ...(req.body.details_line2 !== undefined
+        ? { details_line2: req.body.details_line2 || "" }
+        : {}),
+      ...(req.body.extra_details !== undefined
+        ? { extra_details: req.body.extra_details || "" }
+        : {}),
+
+      ...(driverIds !== undefined ? { driver_ids: driverIds } : {}),
+      ...(driverNamesSnapshot !== undefined
+        ? { driver_names_snapshot: driverNamesSnapshot }
+        : {}),
+      ...(driverVehiclesSnapshot !== undefined
+        ? { vehicle_numbers_snapshot: driverVehiclesSnapshot }
+        : {}),
+
+      ...(items !== undefined ? { items } : {}),
+      ...(itemsTotal !== undefined
+        ? { value_jod: itemsTotal }
+        : req.body.value_jod !== undefined
+          ? { value_jod: safeNumber(req.body.value_jod, 0) }
+          : {}),
+
+      ...(req.body.einv !== undefined
+        ? { einv: normalizeEInv(req.body.einv) }
+        : {}),
+    };
+
+    const inv = await Invoice.findByIdAndUpdate(req.params.id, payload, {
+      new: true,
+    });
+    if (!inv) return res.status(404).json({ error: "Not found" });
+    res.json(inv);
+  } catch (err) {
+    console.error("Error updating invoice:", err);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: err.message });
+  }
+});
+
+app.get("/api/invoices/:id", async (req, res) => {
+  try {
+    const inv = await Invoice.findById(req.params.id);
+    if (!inv) return res.status(404).json({ error: "Not found" });
+    res.json(inv);
+  } catch (err) {
+    console.error("Error getting invoice by id:", err);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: err.message });
+  }
+});
+
+app.delete("/api/invoices/:id", async (req, res) => {
+  try {
+    const inv = await Invoice.findByIdAndDelete(req.params.id);
+    if (!inv) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting invoice:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/* ======================= VOUCHERS ======================= */
+app.get("/api/vouchers", async (req, res) => {
+  try {
+    const { limit = 200 } = req.query;
+    const rows = await Voucher.find({})
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .populate("allocations.invoice_id");
+    res.json(rows);
+  } catch (e) {
+    console.error("GET /api/vouchers error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
+app.get("/api/vouchers/:id", async (req, res) => {
+  try {
+    const row = await Voucher.findById(req.params.id).populate(
+      "allocations.invoice_id",
+    );
+    if (!row) return res.status(404).json({ error: "Not found" });
+    res.json(row);
+  } catch (e) {
+    console.error("GET /api/vouchers/:id error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
+app.post("/api/vouchers", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const type = String(body.type || "").toUpperCase();
+    if (!["RECEIPT", "PAYMENT"].includes(type)) {
+      return res.status(400).json({ error: "type must be RECEIPT or PAYMENT" });
+    }
+
+    const date = asIsoDate(body.date || new Date().toISOString().slice(0, 10));
+
+    const allocations = (
+      Array.isArray(body.allocations) ? body.allocations : []
+    )
+      .map((a) => {
+        const invoice_id = toIdStr(a?.invoice_id);
+        const amount = safeNumber(a?.amount, 0);
+        return { invoice_id, amount: Number(amount.toFixed(3)) };
+      })
+      .filter((a) => a.invoice_id && a.amount > 0);
+
+    if (!allocations.length)
+      return res.status(400).json({ error: "allocations is required" });
+
+    const amount_total = Number(
+      allocations
+        .reduce((sum, a) => sum + safeNumber(a.amount, 0), 0)
+        .toFixed(3),
+    );
+
+    let serial_no = String(body.serial_no || "").trim();
+    if (!serial_no) serial_no = await reserveNextVoucherSerial();
+
+    const doc = await Voucher.create({
+      type,
+      date,
+      serial_no,
+
+      party_name: String(body.party_name || "").trim(),
+      party_phone: String(body.party_phone || "").trim(),
+
+      currency: String(body.currency || "JOD").trim() || "JOD",
+      method: String(body.method || "CASH").toUpperCase(),
+      ref_no: String(body.ref_no || "").trim(),
+      notes: String(body.notes || "").trim(),
+
+      allocations,
+      amount_total,
+    });
+
+    const full = await Voucher.findById(doc._id).populate(
+      "allocations.invoice_id",
+    );
+    res.status(201).json(full);
+  } catch (e) {
+    if (String(e?.code) === "11000") {
+      return res.status(409).json({
+        error: "Duplicate serial_no",
+        message: "serial_no already exists",
+      });
+    }
+    console.error("POST /api/vouchers error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
+app.delete("/api/vouchers/:id", async (req, res) => {
+  try {
+    const row = await Voucher.findByIdAndDelete(req.params.id);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  } catch (e) {
+    console.error("DELETE /api/vouchers/:id error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
+/* =======================
+   E-INVOICING (Jordan)
+   ✅ حسب الدليل: POST على /core/invoices/ (مش /submit)
+   headers: Client-Id, Secret-Key
+   body: { "invoice": "<base64 xml>" }
+======================= */
+function buildUblInvoiceXml(inv) {
+  const issueDate = asIsoDate(
+    inv?.date || new Date().toISOString().slice(0, 10),
+  );
+  const invoiceId = inv?.invoice_number || `INV-${inv?._id}`;
+  const uuid = randomUUID();
+
+  const einv = normalizeEInv(inv?.einv);
+
+  const supplierName = inv?.company || "—";
+  const supplierTax = String(process.env.EINV_SUPPLIER_TAXNO || "").trim();
+  const supplierCity = String(process.env.EINV_SUPPLIER_CITY || "عمان").trim();
+
+  const buyerName = einv.buyerName || "—";
+  const buyerCity = einv.buyerCity || "عمان";
+  const currency = einv.currency || "JOD";
+
+  const items = Array.isArray(inv?.items) ? inv.items : [];
+  const validItems = items.filter(
+    (x) => String(x?.desc || "").trim() || Number(x?.amount_jod || 0),
+  );
+
+  const total = Number(inv?.value_jod || 0).toFixed(3);
+  const noteText = String(inv?.notes || "").trim();
+  const lineCount = validItems.length || 1;
+
+  const linesXml = validItems
+    .map((it, idx) => {
+      const lineId = idx + 1;
+      const desc = escapeXml(it?.desc || "");
+      const qty = 1;
+      const lineTotal = Number(it?.amount_jod || 0).toFixed(3);
+      const price = Number(it?.amount_jod || 0).toFixed(3);
+
+      return `
+  <cac:InvoiceLine>
+    <cbc:ID>${lineId}</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="EA">${qty}</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${lineTotal}</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>${desc}</cbc:Name>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="${escapeXml(currency)}">${price}</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>`;
+    })
+    .join("");
+
+  const buyerRef = String(einv.incomeSourceSeq || "").trim();
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+
+  <!-- مفيد جداً لتوافق UBL -->
+  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+  <cbc:ProfileID>reporting:1.0</cbc:ProfileID>
+
+  <cbc:ID>${escapeXml(invoiceId)}</cbc:ID>
+  <cbc:UUID>${escapeXml(uuid)}</cbc:UUID>
+  <cbc:IssueDate>${escapeXml(issueDate)}</cbc:IssueDate>
+
+  <!-- ✅ NOTE لازم قبل InvoiceTypeCode (حسب الـ XSD اللي عندهم) -->
+  ${noteText ? `<cbc:Note>${escapeXml(noteText)}</cbc:Note>` : ""}
+
+  <cbc:InvoiceTypeCode name="012">388</cbc:InvoiceTypeCode>
+
+  <!-- ✅ بعد InvoiceTypeCode لازم يجي LineCountNumeric / BuyerReference (ضمن المتوقع) -->
+  <cbc:LineCountNumeric>${lineCount}</cbc:LineCountNumeric>
+  ${buyerRef ? `<cbc:BuyerReference>${escapeXml(buyerRef)}</cbc:BuyerReference>` : ""}
+
+  <cbc:DocumentCurrencyCode>${escapeXml(currency)}</cbc:DocumentCurrencyCode>
+  <cbc:TaxCurrencyCode>${escapeXml(currency)}</cbc:TaxCurrencyCode>
+
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cac:PartyName><cbc:Name>${escapeXml(supplierName)}</cbc:Name></cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:CityName>${escapeXml(supplierCity)}</cbc:CityName>
+        <cac:Country><cbc:IdentificationCode>JO</cbc:IdentificationCode></cac:Country>
+      </cac:PostalAddress>
+      ${
+        supplierTax
+          ? `
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>${escapeXml(supplierTax)}</cbc:CompanyID>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:PartyTaxScheme>`
+          : ""
+      }
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cac:PartyName><cbc:Name>${escapeXml(buyerName)}</cbc:Name></cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:CityName>${escapeXml(buyerCity)}</cbc:CityName>
+        ${einv.buyerPostalCode ? `<cbc:PostalZone>${escapeXml(einv.buyerPostalCode)}</cbc:PostalZone>` : ""}
+        <cac:Country><cbc:IdentificationCode>JO</cbc:IdentificationCode></cac:Country>
+      </cac:PostalAddress>
+      ${
+        einv.buyerTaxNo
+          ? `
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>${escapeXml(einv.buyerTaxNo)}</cbc:CompanyID>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:PartyTaxScheme>`
+          : ""
+      }
+      ${
+        einv.buyerPhone
+          ? `
+      <cac:Contact><cbc:Telephone>${escapeXml(einv.buyerPhone)}</cbc:Telephone></cac:Contact>`
+          : ""
+      }
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="${escapeXml(currency)}">0.000</cbc:TaxAmount>
+  </cac:TaxTotal>
+
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${total}</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="${escapeXml(currency)}">${total}</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="${escapeXml(currency)}">${total}</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="${escapeXml(currency)}">${total}</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+
+  ${linesXml}
+</Invoice>`;
+
+  return xml.trim();
+}
+
+async function submitInvoiceToEInv(invoiceId, res) {
+  const inv = await Invoice.findById(invoiceId);
+  if (!inv) return res.status(404).json({ error: "Invoice not found" });
+
+  const xml = buildUblInvoiceXml(inv);
+  const invoiceBase64 = Buffer.from(xml, "utf8").toString("base64");
+
+  const urlRaw = String(process.env.EINV_URL || "").trim();
+  const clientId = String(process.env.EINV_CLIENT_ID || "").trim();
+  const secretKey = String(process.env.EINV_SECRET_KEY || "").trim();
+
+  if (!urlRaw)
+    return res.status(500).json({ error: "Missing EINV_URL in .env" });
+  if (!clientId || !secretKey) {
+    return res
+      .status(500)
+      .json({ error: "Missing EINV_CLIENT_ID or EINV_SECRET_KEY in .env" });
+  }
+
+  const url = urlRaw.replace(/\s+/g, ""); // تنظيف مسافات
+  console.log("EINV URL:", url);
+  console.log("ClientId len:", clientId.length);
+  console.log("SecretKey len:", secretKey.length);
+
+  const einv = normalizeEInv(inv?.einv);
+  console.log("IncomeSourceSeq:", einv.incomeSourceSeq || "[MISSING]");
+  console.log(
+    "SupplierTax (.env):",
+    String(process.env.EINV_SUPPLIER_TAXNO || "") || "[MISSING]",
+  );
+  console.log("UBL XML FULL:\n", xml);
+
+  const resp = await axios.post(
+    url,
+    { invoice: invoiceBase64 },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "Client-Id": clientId,
+        "Secret-Key": secretKey,
+        Accept: "application/json, text/plain, */*",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JoFotaraClient/1.0",
+      },
+      timeout: 60_000,
+      validateStatus: () => true,
+      responseType: "text",
+    },
+  );
+
+  if (resp.status >= 400) {
+    console.error("EINV rejected status:", resp.status);
+    console.error("EINV rejected headers:", resp.headers);
+    console.error("EINV rejected body:", resp.data);
+
+    return res.status(resp.status).json({
+      error: "EINV rejected",
+      status: resp.status,
+      data: resp.data,
+      headers: resp.headers,
+    });
+  }
+
+  return res.json({
+    ok: true,
+    sent_invoice_id: invoiceId,
+    invoice_number: inv.invoice_number,
+    response: resp.data,
+    headers: resp.headers,
+  });
+}
+
+app.post("/api/einv/submit/:invoiceId", async (req, res) => {
+  try {
+    return await submitInvoiceToEInv(req.params.invoiceId, res);
+  } catch (e) {
+    console.error("EINV submit failed:", e?.message || e);
+    return res
+      .status(500)
+      .json({ error: "EINV submit failed", message: e?.message || String(e) });
+  }
+});
+
+app.post("/api/einv/submit", async (req, res) => {
+  try {
+    const invoiceId = req.body?.invoiceId;
+    if (!invoiceId)
+      return res.status(400).json({ error: "invoiceId is required" });
+    return await submitInvoiceToEInv(invoiceId, res);
+  } catch (e) {
+    console.error("EINV submit failed:", e?.message || e);
+    return res
+      .status(500)
+      .json({ error: "EINV submit failed", message: e?.message || String(e) });
+  }
+});
+
+/* ======================= WAYBILLS ======================= */
+app.get("/api/waybills", async (req, res) => {
+  try {
+    const { limit = 100 } = req.query;
+    const waybills = await Waybill.find({})
+      .sort({ created_at: -1 })
+      .limit(Number(limit));
+    res.json(waybills);
+  } catch (err) {
+    console.error("Error getting waybills:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/waybills", async (req, res) => {
+  try {
+    const payload = req.body || {};
+
+    const fromBot =
+      String(req.get("x-from-bot") || "") === "1" ||
+      String(payload.SOURCE || "")
+        .trim()
+        .toUpperCase() === "BOT" ||
+      payload.FROM_BOT === true ||
+      payload.FROM_BOT === 1 ||
+      String(payload.FROM_BOT || "").trim() === "1";
+
+    const source = fromBot
+      ? "BOT"
+      : String(payload.SOURCE || "")
+          .trim()
+          .toUpperCase() || "MANUAL";
+
+    // Backend is authoritative: ignore any client-supplied waybillNumber
+    // and always reserve the final serial from the submitted document date.
+    const docDate = payload.DATE ? new Date(payload.DATE) : new Date();
+    const waybillNumber = await reserveNextWaybillSerial(docDate);
+
+    const waybillToSave = {
+      ...payload,
+      waybillNumber,
+      SERIAL_NO: waybillNumber, // display field synced to the authoritative serial
+      SOURCE: source,
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    const saved = await Waybill.create(waybillToSave);
+    return res.status(201).json(saved);
+  } catch (e) {
+    if (String(e?.code) === "11000") {
+      return res.status(409).json({
+        message: "Serial conflict: duplicate waybillNumber",
+        error: "DuplicateKey",
+      });
+    }
+    console.error("POST /api/waybills error:", e);
+    return res
+      .status(500)
+      .json({ message: "Failed to create waybill", error: String(e) });
+  }
+});
+
+app.get("/api/waybills/:id", async (req, res) => {
+  try {
+    const wb = await Waybill.findById(req.params.id);
+    if (!wb) return res.status(404).json({ error: "Not found" });
+    res.json(wb);
+  } catch (err) {
+    console.error("Error getting waybill:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.put("/api/waybills/:id", async (req, res) => {
+  try {
+    const payload = { ...req.body, updated_at: new Date() };
+    const wb = await Waybill.findByIdAndUpdate(req.params.id, payload, {
+      new: true,
+    });
+    if (!wb) return res.status(404).json({ error: "Not found" });
+    res.json(wb);
+  } catch (err) {
+    console.error("Error updating waybill:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/api/waybills/:id", async (req, res) => {
+  try {
+    const wb = await Waybill.findByIdAndDelete(req.params.id);
+    if (!wb) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting waybill:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/* ======================= DRIVERS ======================= */
+app.get("/api/drivers", async (req, res) => {
+  try {
+    const drivers = await Driver.find({}).sort({ created_at: -1 });
+    res.json(drivers);
+  } catch (err) {
+    console.error("Error getting drivers:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/drivers", async (req, res) => {
+  try {
+    const payload = {
+      name: req.body.name || "",
+      phone: req.body.phone || "",
+      vehicle_no: req.body.vehicle_no || "",
+      vehicle_city: req.body.vehicle_city || "",
+      license_no: req.body.license_no || "",
+      notes: req.body.notes || "",
+    };
+    const driver = new Driver(payload);
+    await driver.save();
+    res.status(201).json(driver);
+  } catch (err) {
+    console.error("Error creating driver:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/vehicles", async (req, res) => {
+  try {
+    const rows = await Driver.find(
+      { vehicle_no: { $ne: "" } },
+      { vehicle_no: 1, vehicle_city: 1, name: 1, phone: 1 },
+    ).sort({ vehicle_no: 1 });
+    res.json(rows);
+  } catch (err) {
+    console.error("Error getting vehicles:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.put("/api/drivers/:id", async (req, res) => {
+  try {
+    const payload = {
+      name: req.body.name || "",
+      phone: req.body.phone || "",
+      vehicle_no: req.body.vehicle_no || "",
+      vehicle_city: req.body.vehicle_city || "",
+      license_no: req.body.license_no || "",
+      notes: req.body.notes || "",
+    };
+    const driver = await Driver.findByIdAndUpdate(req.params.id, payload, {
+      new: true,
+    });
+    if (!driver) return res.status(404).json({ error: "Not found" });
+    res.json(driver);
+  } catch (err) {
+    console.error("Error updating driver:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/api/drivers/:id", async (req, res) => {
+  try {
+    const driver = await Driver.findByIdAndDelete(req.params.id);
+    if (!driver) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting driver:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/* ======================= CONSIGNORS ======================= */
+app.get("/api/consignors", async (req, res) => {
+  try {
+    const consignors = await Consignor.find({}).sort({ created_at: -1 });
+    res.json(consignors);
+  } catch (err) {
+    console.error("Error getting consignors:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/consignors", async (req, res) => {
+  try {
+    const consignor = new Consignor(req.body);
+    await consignor.save();
+    res.status(201).json(consignor);
+  } catch (err) {
+    console.error("Error creating consignor:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.put("/api/consignors/:id", async (req, res) => {
+  try {
+    const consignor = await Consignor.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true },
+    );
+    if (!consignor) return res.status(404).json({ error: "Not found" });
+    res.json(consignor);
+  } catch (err) {
+    console.error("Error updating consignor:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/api/consignors/:id", async (req, res) => {
+  try {
+    const consignor = await Consignor.findByIdAndDelete(req.params.id);
+    if (!consignor) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting consignor:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/* ======================= CONSIGNEES ======================= */
+app.get("/api/consignees", async (req, res) => {
+  try {
+    const consignees = await Consignee.find({}).sort({ created_at: -1 });
+    res.json(consignees);
+  } catch (err) {
+    console.error("Error getting consignees:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/consignees", async (req, res) => {
+  try {
+    const consignee = new Consignee(req.body);
+    await consignee.save();
+    res.status(201).json(consignee);
+  } catch (err) {
+    console.error("Error creating consignee:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.put("/api/consignees/:id", async (req, res) => {
+  try {
+    const consignee = await Consignee.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true },
+    );
+    if (!consignee) return res.status(404).json({ error: "Not found" });
+    res.json(consignee);
+  } catch (err) {
+    console.error("Error updating consignee:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/api/consignees/:id", async (req, res) => {
+  try {
+    const consignee = await Consignee.findByIdAndDelete(req.params.id);
+    if (!consignee) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting consignee:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/* ======================= PDF (Waybill) ======================= */
+function fillTemplateString(template, obj) {
+  return template.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (match, key) => {
+    const val =
+      obj[key] ??
+      obj[String(key).toUpperCase()] ??
+      obj[String(key).toLowerCase()] ??
+      "";
+    return val == null ? "" : String(val);
+  });
+}
+
+function generateWaybillHtmlFromTemplateNode(waybillDoc) {
+  const templatePath = path.join(
+    __dirname,
+    "templates",
+    "waybill_template.html",
+  );
+  if (!fs.existsSync(templatePath)) {
+    const plain = waybillDoc.toObject ? waybillDoc.toObject() : waybillDoc;
+    return `<html><body style="font-family:tahoma; direction:rtl">
+      <h3>Template not found: ${templatePath}</h3>
+      <pre>${JSON.stringify(plain, null, 2)}</pre>
+    </body></html>`;
+  }
+  const raw = fs.readFileSync(templatePath, "utf-8");
+  const plain = waybillDoc.toObject ? waybillDoc.toObject() : waybillDoc;
+  return fillTemplateString(raw, plain);
+}
+
+app.get("/api/waybills/:id/regenerate-pdf", async (req, res) => {
+  try {
+    const wb = await Waybill.findById(req.params.id);
+    if (!wb) return res.status(404).json({ error: "Waybill not found" });
+
+    const html = generateWaybillHtmlFromTemplateNode(wb);
+
+    const outDir = path.join(__dirname, "forms", "waybills");
+    fs.mkdirSync(outDir, { recursive: true });
+
+    const serial = wb.SERIAL_NO || `WB${wb._id}`;
+    const pdfPath = path.join(outDir, `waybill_${serial}.pdf`);
+
+    const browser = await puppeteer.launch({ headless: "new" });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+
+    await page.pdf({
+      path: pdfPath,
+      format: "A4",
+      printBackground: true,
+      margin: { top: "5mm", right: "5mm", bottom: "5mm", left: "5mm" },
+    });
+
+    await browser.close();
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="waybill_${serial}.pdf"`,
+    );
+    fs.createReadStream(pdfPath).pipe(res);
+  } catch (err) {
+    console.error("regenerate-pdf error:", err);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", details: String(err) });
+  }
+});
+
+app.get("/api/waybills/:id/preview", async (req, res) => {
+  try {
+    const wb = await Waybill.findById(req.params.id);
+    if (!wb) return res.status(404).send("Waybill not found");
+    const html = generateWaybillHtmlFromTemplateNode(wb);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  } catch (err) {
+    console.error("preview error:", err);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Server running on http://localhost:${PORT}`);
+});

@@ -154,10 +154,13 @@ async function fetchConsignees() {
 ========================= */
 async function fetchNextSerial() {
   try {
+    const dateParam = form.value.DATE
+      ? `?date=${encodeURIComponent(form.value.DATE)}`
+      : "";
     const { data } = await axios.get(
-      `${props.apiBase}/api/waybills/next-serial`,
+      `${props.apiBase}/api/waybills/next-serial${dateParam}`,
     );
-    form.value.SERIAL_NO = data?.SERIAL_NO || "";
+    form.value.SERIAL_NO = data?.waybillNumber || data?.SERIAL_NO || "";
   } catch (e) {
     console.error("fetchNextSerial failed:", e);
     // للعرض فقط، ما نكسر الشغل
@@ -186,6 +189,14 @@ watch(
     form.value.DELIVERY_PLACE_DATE = `${form.value.ISSUING_PLACE} - ${deliveryDate}`;
   },
   { immediate: true },
+);
+
+// ✅ Re-fetch serial when date changes (month-based sequencing)
+watch(
+  () => form.value.DATE,
+  () => {
+    fetchNextSerial();
+  },
 );
 
 /* =========================
@@ -499,7 +510,8 @@ async function saveWaybill() {
     const { data } = await axios.post(`${props.apiBase}/api/waybills`, payload);
 
     // ✅ خزّن الرقم النهائي الذي قرره السيرفر
-    if (data?.SERIAL_NO) form.value.SERIAL_NO = data.SERIAL_NO;
+    if (data?.waybillNumber) form.value.SERIAL_NO = data.waybillNumber;
+    else if (data?.SERIAL_NO) form.value.SERIAL_NO = data.SERIAL_NO;
 
     emit("saved", data);
     return data;

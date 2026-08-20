@@ -206,7 +206,7 @@ const invoiceColumns = [
 ];
 
 const waybillColumns = [
-  { key: "SERIAL_NO", label: "رقم السند", sortable: true, align: "ltr" },
+  { key: "waybillNumber", label: "رقم السند", sortable: true, align: "ltr" },
   { key: "__SOURCE__", label: "المصدر", sortable: true },
   { key: "DATE", label: "تاريخ الوثيقة", sortable: true },
   { key: "CONSIGNOR_NAME", label: "المرسل", sortable: true },
@@ -354,6 +354,14 @@ function getWaybillVehicleNo(wb) {
   );
 }
 function getWaybillDriverName(wb) {
+  // ✅ عرض كل السائقين في نفس الخانة (بدون تكرار أو أسماء فارغة)
+  const names = [1, 2, 3]
+    .map((n) => wb?.[`DRIVER${n}_NAME`] ?? wb?.[`driver${n}_name`])
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+  const unique = [...new Set(names)];
+  if (unique.length) return unique.join("\n");
+  // fallback قديم: سائق واحد
   return (
     wb?.DRIVER_NAME ||
     wb?.driver_name ||
@@ -622,7 +630,7 @@ async function deleteInvoice(inv) {
 }
 
 async function deleteWaybill(wb) {
-  const serial = wb?.SERIAL_NO || wb?._id;
+  const serial = wb?.waybillNumber || wb?.SERIAL_NO || wb?._id;
   if (!confirm(`هل أنت متأكد من حذف البوليصة رقم ${serial} ؟`)) return;
 
   try {
@@ -1491,7 +1499,9 @@ onMounted(async () => {
 
               <tbody>
                 <tr v-for="wb in pagedWaybills" :key="wb._id">
-                  <td class="cell-ellipsis">{{ wb.SERIAL_NO }}</td>
+                  <td class="cell-ellipsis">
+                    {{ wb.waybillNumber || wb.SERIAL_NO }}
+                  </td>
 
                   <td class="cell-ellipsis">
                     <span
@@ -2226,7 +2236,7 @@ onMounted(async () => {
 .table td {
   padding: 10px 10px;
   border: 1px solid #adb1b6; /* بوردر خفيف جداً */
-  white-space: nowrap;
+  white-space: pre-line;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2374,37 +2384,37 @@ onMounted(async () => {
 }
 
 .c-wb-serial {
-  width: 140px;
-}
-.c-wb-source {
   width: 120px;
 }
+.c-wb-source {
+  width: 90px;
+}
 .c-wb-date {
-  width: 140px;
+  width: 120px;
 }
 .c-wb-consignor {
-  width: 200px;
+  width: 160px;
 }
 .c-wb-consignee {
-  width: 200px;
+  width: 160px;
 }
 .c-wb-vehicle {
-  width: 150px;
+  width: 110px;
 }
 .c-wb-driver {
-  width: 170px;
+  width: 180px;
 }
 .c-wb-goods {
-  width: 220px;
+  width: 150px;
 }
 .c-wb-weight {
-  width: 140px;
+  width: 100px;
 }
 .c-wb-created {
-  width: 190px;
+  width: 150px;
 }
 .c-wb-actions {
-  width: 260px;
+  width: 210px;
 }
 
 .c-vc-serial {

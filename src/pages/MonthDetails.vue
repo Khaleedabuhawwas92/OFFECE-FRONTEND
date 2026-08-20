@@ -414,7 +414,7 @@ watch([year, month], () => {
 
             <tbody>
               <tr v-for="wb in shownWaybills" :key="wb._id">
-                <td dir="ltr">{{ wb.SERIAL_NO }}</td>
+                <td dir="ltr">{{ wb.waybillNumber || wb.SERIAL_NO }}</td>
                 <td class="mono">{{ getWaybillSource(wb) }}</td>
                 <td class="muted" dir="ltr">{{ wb.DATE }}</td>
                 <td class="clip" :title="wb.CONSIGNOR_NAME">
