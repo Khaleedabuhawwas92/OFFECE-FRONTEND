@@ -327,13 +327,12 @@ function exportWaybillsCsv() {
 <template>
   <div class="page">
     <header class="topbar">
-      <div class="title-wrap">
-        <div class="title">التقارير</div>
-        <div class="subtitle">
+      <div class="topbar-left">
+        <div class="app-title">التقارير</div>
+        <div class="app-subtitle">
           فلترة تاريخ + إحصائيات + كروت شهرية + تصدير CSV
         </div>
       </div>
-
       <div class="actions">
         <button class="btn btn--secondary" type="button" @click="goBack">
           ⬅ رجوع للداشبورد
@@ -348,201 +347,241 @@ function exportWaybillsCsv() {
       </div>
     </header>
 
-    <div class="main">
-      <div v-if="errorMessage" class="alert">{{ errorMessage }}</div>
-
-      <div class="filters">
-        <div class="filter">
-          <span>من:</span>
-          <input v-model="dateFrom" type="date" class="inp" />
-        </div>
-        <div class="filter">
-          <span>إلى:</span>
-          <input v-model="dateTo" type="date" class="inp" />
+    <div class="main-area">
+      <div class="content-wrapper">
+        <div v-if="errorMessage" class="alert alert--danger">
+          {{ errorMessage }}
         </div>
 
-        <div class="tabs">
-          <button
-            class="tab"
-            :class="{ active: tab === 'invoices' }"
-            @click="tab = 'invoices'"
-          >
-            فواتير <span class="badge">{{ invCount }}</span>
-          </button>
-          <button
-            class="tab"
-            :class="{ active: tab === 'waybills' }"
-            @click="tab = 'waybills'"
-          >
-            بوالص <span class="badge">{{ wbCount }}</span>
-          </button>
-        </div>
+        <!-- Filter Card -->
+        <section class="card filter-card">
+          <div class="filter-row">
+            <div class="filter-group">
+              <label class="filter-label">
+                <span>من:</span>
+                <input v-model="dateFrom" type="date" class="inp" />
+              </label>
+              <label class="filter-label">
+                <span>إلى:</span>
+                <input v-model="dateTo" type="date" class="inp" />
+              </label>
+            </div>
 
-        <div class="right">
-          <button
-            v-if="tab === 'invoices'"
-            class="btn btn--primary"
-            @click="exportInvoicesCsv"
-          >
-            ⬇️ CSV فواتير
-          </button>
-          <button v-else class="btn btn--primary" @click="exportWaybillsCsv">
-            ⬇️ CSV بوالص
-          </button>
-        </div>
-      </div>
+            <div class="tabs">
+              <button
+                class="tab"
+                :class="{ active: tab === 'invoices' }"
+                @click="tab = 'invoices'"
+              >
+                الفواتير <span class="badge">{{ invCount }}</span>
+              </button>
+              <button
+                class="tab"
+                :class="{ active: tab === 'waybills' }"
+                @click="tab = 'waybills'"
+              >
+                وثائق النقل <span class="badge">{{ wbCount }}</span>
+              </button>
+            </div>
 
-      <div v-if="loading" class="loading">جاري التحميل...</div>
+            <div class="filter-actions">
+              <button
+                v-if="tab === 'invoices'"
+                class="btn btn--primary"
+                @click="exportInvoicesCsv"
+              >
+                ⬇️ CSV فواتير
+              </button>
+              <button
+                v-else
+                class="btn btn--primary"
+                @click="exportWaybillsCsv"
+              >
+                ⬇️ CSV بوالص
+              </button>
+            </div>
+          </div>
+        </section>
 
-      <!-- ✅ Monthly cards -->
-      <div v-else class="months-wrap">
-        <div class="months-title">
-          كروت الشهور (اضغط على الشهر لعرض تفاصيل الشهر)
-        </div>
+        <div v-if="loading" class="status-text">جاري التحميل...</div>
 
-        <div class="months-grid">
-          <button
-            v-for="m in months"
-            :key="m.key"
-            class="month-card"
-            type="button"
-            @click="goToMonth(m)"
-          >
-            <div class="month-title">{{ m.label }}</div>
-
-            <div class="month-stats" v-if="tab === 'invoices'">
-              <div class="ms">
-                <div class="ms-label">عدد</div>
-                <div class="ms-val">{{ m.count }}</div>
+        <template v-else>
+          <!-- Summary Cards -->
+          <section class="summary-section">
+            <div v-if="tab === 'invoices'" class="summary-grid">
+              <div class="stat-card">
+                <div class="stat-label">عدد الفواتير</div>
+                <div class="stat-val">{{ invCount }}</div>
               </div>
-              <div class="ms">
-                <div class="ms-label">المجموع (JOD)</div>
-                <div class="ms-val" dir="ltr">
-                  {{ Number(m.sum || 0).toFixed(3) }}
+              <div class="stat-card">
+                <div class="stat-label">مجموع الفواتير (JOD)</div>
+                <div class="stat-val" dir="ltr">
+                  {{ Number(invSumJod || 0).toFixed(3) }}
                 </div>
               </div>
             </div>
-
-            <div class="month-stats" v-else>
-              <div class="ms">
-                <div class="ms-label">عدد</div>
-                <div class="ms-val">{{ m.count }}</div>
+            <div v-else class="summary-grid">
+              <div class="stat-card">
+                <div class="stat-label">عدد البوالص</div>
+                <div class="stat-val">{{ wbCount }}</div>
               </div>
-              <div class="ms">
-                <div class="ms-label">BOT</div>
-                <div class="ms-val">{{ m.bot }}</div>
+              <div class="stat-card">
+                <div class="stat-label">BOT</div>
+                <div class="stat-val">{{ wbBotCount }}</div>
               </div>
-              <div class="ms">
-                <div class="ms-label">MANUAL</div>
-                <div class="ms-val">{{ m.manual }}</div>
+              <div class="stat-card">
+                <div class="stat-label">MANUAL</div>
+                <div class="stat-val">{{ wbManualCount }}</div>
               </div>
             </div>
+          </section>
 
-            <div class="month-hint">اضغط لفتح جدول الشهر</div>
-          </button>
-
-          <div v-if="months.length === 0" class="empty-months">
-            لا يوجد بيانات ضمن الفترة الحالية.
-          </div>
-        </div>
-      </div>
-
-      <!-- ✅ Existing stats below -->
-      <div v-if="!loading" class="grid" style="margin-top: 14px">
-        <template v-if="tab === 'invoices'">
-          <div class="card">
-            <div class="card-title">عدد الفواتير</div>
-            <div class="card-val">{{ invCount }}</div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">مجموع الفواتير (JOD)</div>
-            <div class="card-val" dir="ltr">
-              {{ Number(invSumJod || 0).toFixed(3) }}
+          <!-- Monthly Cards -->
+          <section class="card months-section">
+            <div class="section-header">
+              <h2 class="section-title">كروت الشهور</h2>
+              <span class="section-hint">اضغط على الشهر لعرض التفاصيل</span>
             </div>
-          </div>
+            <div class="months-grid">
+              <button
+                v-for="m in months"
+                :key="m.key"
+                class="month-card"
+                type="button"
+                @click="goToMonth(m)"
+              >
+                <div class="month-title">{{ m.label }}</div>
 
-          <div class="card wide">
-            <div class="card-title">أعلى 10 شركات حسب المجموع</div>
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>الشركة</th>
-                  <th dir="ltr">عدد</th>
-                  <th dir="ltr">المجموع (JOD)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(r, i) in topCompanies" :key="i">
-                  <td class="clip" :title="r.company">{{ r.company }}</td>
-                  <td dir="ltr">{{ r.count }}</td>
-                  <td dir="ltr">{{ Number(r.sum || 0).toFixed(3) }}</td>
-                </tr>
-                <tr v-if="topCompanies.length === 0">
-                  <td colspan="3" class="empty">لا يوجد بيانات ضمن الفترة</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
+                <div class="month-stats" v-if="tab === 'invoices'">
+                  <div class="ms">
+                    <div class="ms-label">عدد</div>
+                    <div class="ms-val">{{ m.count }}</div>
+                  </div>
+                  <div class="ms">
+                    <div class="ms-label">المجموع (JOD)</div>
+                    <div class="ms-val" dir="ltr">
+                      {{ Number(m.sum || 0).toFixed(3) }}
+                    </div>
+                  </div>
+                </div>
 
-        <template v-else>
-          <div class="card">
-            <div class="card-title">عدد البوالص</div>
-            <div class="card-val">{{ wbCount }}</div>
-          </div>
+                <div class="month-stats" v-else>
+                  <div class="ms">
+                    <div class="ms-label">عدد</div>
+                    <div class="ms-val">{{ m.count }}</div>
+                  </div>
+                  <div class="ms">
+                    <div class="ms-label">بوت</div>
+                    <div class="ms-val">{{ m.bot }}</div>
+                  </div>
+                  <div class="ms">
+                    <div class="ms-label">يدوي</div>
+                    <div class="ms-val">{{ m.manual }}</div>
+                  </div>
+                </div>
+              </button>
 
-          <div class="card">
-            <div class="card-title">BOT</div>
-            <div class="card-val">{{ wbBotCount }}</div>
-          </div>
+              <div v-if="months.length === 0" class="empty-state">
+                لا يوجد بيانات ضمن الفترة الحالية.
+              </div>
+            </div>
+          </section>
 
-          <div class="card">
-            <div class="card-title">MANUAL</div>
-            <div class="card-val">{{ wbManualCount }}</div>
-          </div>
+          <!-- Top 10 Tables -->
+          <section class="tables-section">
+            <template v-if="tab === 'invoices'">
+              <div class="card table-card">
+                <div class="section-header">
+                  <h2 class="section-title">أعلى 10 شركات حسب المجموع</h2>
+                </div>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th class="th-company">الشركة</th>
+                        <th class="th-number" dir="ltr">عدد</th>
+                        <th class="th-number" dir="ltr">المجموع (JOD)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(r, i) in topCompanies" :key="i">
+                        <td class="clip" :title="r.company">
+                          {{ r.company }}
+                        </td>
+                        <td dir="ltr">{{ r.count }}</td>
+                        <td dir="ltr">
+                          {{ Number(r.sum || 0).toFixed(3) }}
+                        </td>
+                      </tr>
+                      <tr v-if="topCompanies.length === 0">
+                        <td colspan="3" class="table-empty">
+                          لا يوجد بيانات ضمن الفترة
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </template>
 
-          <div class="card wide">
-            <div class="card-title">أعلى 10 سائقين</div>
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>السائق</th>
-                  <th dir="ltr">عدد</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(r, i) in topDrivers" :key="i">
-                  <td class="clip" :title="r.driver">{{ r.driver }}</td>
-                  <td dir="ltr">{{ r.count }}</td>
-                </tr>
-                <tr v-if="topDrivers.length === 0">
-                  <td colspan="2" class="empty">لا يوجد بيانات ضمن الفترة</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+            <template v-else>
+              <div class="card table-card">
+                <div class="section-header">
+                  <h2 class="section-title">أعلى 10 سائقين</h2>
+                </div>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th class="th-name">السائق</th>
+                        <th class="th-number" dir="ltr">عدد</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(r, i) in topDrivers" :key="i">
+                        <td class="clip" :title="r.driver">{{ r.driver }}</td>
+                        <td dir="ltr">{{ r.count }}</td>
+                      </tr>
+                      <tr v-if="topDrivers.length === 0">
+                        <td colspan="2" class="table-empty">
+                          لا يوجد بيانات ضمن الفترة
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
-          <div class="card wide">
-            <div class="card-title">أعلى 10 مركبات</div>
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>المركبة</th>
-                  <th dir="ltr">عدد</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(r, i) in topVehicles" :key="i">
-                  <td class="clip" :title="r.vehicle">{{ r.vehicle }}</td>
-                  <td dir="ltr">{{ r.count }}</td>
-                </tr>
-                <tr v-if="topVehicles.length === 0">
-                  <td colspan="2" class="empty">لا يوجد بيانات ضمن الفترة</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+              <div class="card table-card">
+                <div class="section-header">
+                  <h2 class="section-title">أعلى 10 مركبات</h2>
+                </div>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th class="th-name">المركبة</th>
+                        <th class="th-number" dir="ltr">عدد</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(r, i) in topVehicles" :key="i">
+                        <td class="clip" :title="r.vehicle">
+                          {{ r.vehicle }}
+                        </td>
+                        <td dir="ltr">{{ r.count }}</td>
+                      </tr>
+                      <tr v-if="topVehicles.length === 0">
+                        <td colspan="2" class="table-empty">
+                          لا يوجد بيانات ضمن الفترة
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </template>
+          </section>
         </template>
       </div>
     </div>
@@ -553,231 +592,251 @@ function exportWaybillsCsv() {
 :global(body) {
   margin: 0;
 }
+
 .page {
   height: 100vh;
+  width: 100%;
+  background: #eef0f3;
+  direction: rtl;
   display: flex;
   flex-direction: column;
-  direction: rtl;
   font-family: "Segoe UI", Tahoma, sans-serif;
-  background: #eef0f3;
-  color: #111827;
+  color: #222;
+  box-sizing: border-box;
+  overflow: hidden;
 }
+
 .topbar {
-  background: #fff;
-  border-bottom: 1px solid #d1d5db;
-  padding: 14px 18px;
+  background: #ffffff;
+  padding: 16px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  border-bottom: 1px solid #ccc;
+  flex-shrink: 0;
 }
-.title {
-  font-weight: 900;
-  font-size: 18px;
+
+.topbar-left {
+  display: flex;
+  flex-direction: column;
 }
-.subtitle {
-  color: #6b7280;
+
+.app-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.app-subtitle {
+  color: #666;
   font-size: 12px;
-  margin-top: 2px;
 }
+
 .actions {
   display: flex;
   gap: 8px;
 }
 
-.main {
+.main-area {
   flex: 1;
-  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content-wrapper {
+  width: 100%;
+  max-width: 1450px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
+  box-sizing: border-box;
+  gap: 20px;
 }
 
-.alert {
-  background: #fff1f2;
-  border: 1px solid #fecdd3;
-  color: #9f1239;
-  padding: 10px 12px;
-  border-radius: 12px;
-  margin-bottom: 10px;
-  font-weight: 700;
+/* Cards */
+.card {
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  padding: 20px 24px;
 }
 
-.filters {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 10px;
+.filter-card {
+  padding: 14px 20px;
+}
+
+/* Filter row */
+.filter-row {
   display: flex;
-  gap: 10px;
   align-items: center;
+  gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-.filter {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-  color: #374151;
-}
-.inp {
-  padding: 8px 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #fff;
 }
 
+.filter-group {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.filter-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #444;
+}
+
+.inp {
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  height: 36px;
+  box-sizing: border-box;
+}
+
+/* Tabs */
 .tabs {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
+
 .tab {
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
-  padding: 8px 12px;
-  border-radius: 12px;
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  padding: 6px 14px;
+  border-radius: 6px;
   cursor: pointer;
-  font-weight: 800;
-  color: #111827;
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
   display: flex;
   align-items: center;
   gap: 8px;
+  transition: all 0.15s ease;
+  font-family: inherit;
 }
+
 .tab.active {
   background: #1976d2;
   color: #fff;
   border-color: #1976d2;
 }
+
 .badge {
-  background: #eef2ff;
-  border: 1px solid #e0e7ff;
+  background: rgba(0, 0, 0, 0.08);
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 12px;
-  color: #3730a3;
+  font-size: 11px;
+  font-weight: 700;
 }
 
-.right {
+.tab.active .badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.filter-actions {
   margin-right: auto;
   display: flex;
   gap: 8px;
 }
 
+/* Buttons */
 .btn {
-  padding: 8px 12px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-weight: 900;
+  padding: 6px 12px;
   font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: inherit;
+  font-weight: 600;
 }
+
 .btn--primary {
   background: #1976d2;
-  color: #fff;
+  color: white;
+  border: none;
 }
+
+.btn--primary:hover {
+  background: #1565c0;
+}
+
 .btn--secondary {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  color: #111827;
+  background: #f5f5f5;
+  color: #333;
+  border: 1px solid #ccc;
 }
+
 .btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.loading {
-  padding: 14px;
-  color: #374151;
-  font-weight: 800;
+/* Alerts */
+.alert--danger {
+  background: #ffebee;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid #ef9a9a;
+  color: #b71c1c;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-/* ===== Monthly cards ===== */
-.months-title {
-  font-weight: 900;
-  color: #374151;
-  margin: 6px 0 10px;
+.status-text {
+  font-size: 13px;
+  color: #444;
+  text-align: center;
+  padding: 20px;
 }
-.months-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+
+/* Section headers */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
   gap: 12px;
 }
-.month-card {
-  border: 1px solid #d1d5db;
-  background: #fff;
-  border-radius: 16px;
-  padding: 14px;
-  cursor: pointer;
-  text-align: right;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  transition: 0.15s ease;
-}
-.month-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.08);
-}
-.month-title {
-  font-weight: 900;
-  color: #1976d2;
-}
-.month-stats {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.ms {
-  flex: 1;
-  min-width: 110px;
-  border: 1px solid #eef2f7;
-  background: #f9fafb;
-  border-radius: 14px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center; /* العنوان فوق الرقم */
-  text-align: center;
-  gap: 6px;
-}
-.ms-label {
-  font-size: 12px;
-  font-weight: 900;
-  color: #6b7280;
-}
-.ms-val {
-  font-size: 22px;
-  font-weight: 900;
-  color: #111827;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-.month-hint {
-  font-size: 12px;
-  color: #6b7280;
-  font-weight: 800;
-}
-.empty-months {
-  padding: 14px;
-  border: 1px dashed #d1d5db;
-  border-radius: 14px;
-  background: #fff;
-  color: #6b7280;
-  font-weight: 900;
-  text-align: center;
+
+.section-title {
+  font-size: 16px;
+  margin: 0;
+  font-weight: 600;
+  color: #222;
 }
 
-/* ===== Existing cards ===== */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+.section-hint {
+  font-size: 12px;
+  color: #666;
 }
-.card {
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
+
+/* Summary */
+.summary-section {
+  margin: 0;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  padding: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -785,66 +844,235 @@ function exportWaybillsCsv() {
   text-align: center;
   gap: 8px;
 }
-/* ✅ خلي العنوان والرقم فوق بعض مضبوط */
-.card-title,
-.card-val {
-  width: 100%;
-  display: block;
-  text-align: center;
+
+.stat-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
 }
 
-/* ✅ لو الرقم dir="ltr" لسا بنطّ */
-.card-val[dir="ltr"] {
+.stat-val {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1976d2;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-val[dir="ltr"] {
   direction: ltr;
-  text-align: center;
 }
 
-/* ✅ كمان نفس الفكرة داخل كروت الشهر */
-.ms-label,
-.ms-val {
+/* Monthly section */
+.months-section {
+  padding: 16px;
   width: 100%;
-  display: block;
+  box-sizing: border-box;
+}
+
+.months-section .section-header {
+  margin-bottom: 12px;
+}
+
+.months-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 260px));
+  gap: 8px;
+  justify-content: start;
+}
+
+.month-card {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  cursor: pointer;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all 0.15s ease;
+}
+
+.month-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  border-color: #1976d2;
+}
+
+.month-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1976d2;
+}
+
+.month-stats {
+  display: flex;
+  gap: 8px;
+}
+
+.ms {
+  flex: 1;
+  min-width: 70px;
+  border: 1px solid #e8e8e8;
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
+  gap: 4px;
+}
+
+.ms-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+}
+
+.ms-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 .ms-val[dir="ltr"] {
   direction: ltr;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border: 1px dashed #ccc;
+  border-radius: 8px;
+  background: #fafafa;
+  color: #777;
+  font-weight: 600;
   text-align: center;
+  font-size: 13px;
+}
+
+/* Tables section */
+.tables-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.table-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.table-container {
+  overflow: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: #fff;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 10px;
   font-size: 13px;
+  table-layout: fixed;
 }
+
 .table th,
 .table td {
-  border-bottom: 1px solid #eef2f7;
-  padding: 8px 8px;
-}
-.table th {
+  border: 1px solid #e0e0e0;
+  padding: 10px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: right;
-  color: #111827;
-  font-weight: 900;
-  background: #f9fafb;
+  vertical-align: middle;
 }
+
+.table th {
+  background: #f5f5f5;
+  font-weight: 600;
+  color: #333;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.table tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+.table-empty {
+  text-align: center;
+  color: #777;
+  padding: 20px;
+  font-weight: 500;
+}
+
 .clip {
-  max-width: 360px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.empty {
-  text-align: center;
-  color: #6b7280;
-  padding: 12px;
-  font-weight: 800;
+
+.th-company {
+  width: 60%;
 }
 
+.th-name {
+  width: 70%;
+}
+
+.th-number {
+  width: 30%;
+}
+
+/* Responsive */
 @media (max-width: 900px) {
-  .grid {
+  .filter-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-group {
+    justify-content: center;
+  }
+
+  .filter-actions {
+    margin-right: 0;
+    justify-content: center;
+  }
+
+  .tabs {
+    justify-content: center;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .tables-section {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .content-wrapper {
+    padding: 16px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .table th,
+  .table td {
+    padding: 8px;
   }
 }
 </style>

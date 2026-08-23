@@ -2,7 +2,18 @@
 require("dotenv").config({
   path: require("path").join(__dirname, "..", ".env"),
 });
-console.log("ENV FILE LOADED. EINV_URL =", process.env.EINV_URL);
+console.log(
+  "EINV_CLIENT_ID loaded:",
+  !!process.env.EINV_CLIENT_ID ? "YES" : "NO",
+);
+console.log(
+  "EINV_SECRET_KEY loaded:",
+  !!process.env.EINV_SECRET_KEY ? "YES" : "NO",
+);
+console.log(
+  "EINV_SECRET_KEY length:",
+  String(process.env.EINV_SECRET_KEY || "").length,
+);
 
 const path = require("path");
 const fs = require("fs");
@@ -157,7 +168,7 @@ async function getNextSerialForMonth(model, field, monthPrefix, datePrefix) {
         },
       },
     ],
-    { new: true, upsert: true },
+    { new: true, upsert: true, updatePipeline: true },
   );
 
   return `${datePrefix}-${String(counter.seq).padStart(4, "0")}`;
@@ -458,7 +469,16 @@ app.post("/api/invoices", async (req, res) => {
       einv,
     });
 
-    res.json(inv);
+    // Auto-submit to JoFotara after local save
+    try {
+      await submitInvoiceToEInv(inv._id);
+    } catch (e) {
+      console.error("Auto-submit unexpected error:", e);
+    }
+
+    // Return fresh invoice with submission state
+    const freshInv = await Invoice.findById(inv._id);
+    res.json(freshInv);
   } catch (e) {
     if (String(e?.code) === "11000") {
       return res.status(409).json({
@@ -752,17 +772,24 @@ function buildUblInvoiceXml(inv) {
     (x) => String(x?.desc || "").trim() || Number(x?.amount_jod || 0),
   );
 
-  const total = Number(inv?.value_jod || 0).toFixed(3);
+  const totalNum = Number(inv?.value_jod || 0);
+  const total = totalNum.toFixed(3);
   const noteText = String(inv?.notes || "").trim();
   const lineCount = validItems.length || 1;
+
+  const taxPercent = einv.invoiceType === "EXPORT" ? 0 : 16;
+  const typeCodeName = einv.invoiceType === "SIMPLIFIED" ? "012" : "011";
+  const taxCategoryId = taxPercent === 0 ? "O" : "S";
+  const taxAmountVal = (totalNum * taxPercent / 100).toFixed(3);
+  const taxInclusiveTotal = (totalNum + Number(taxAmountVal)).toFixed(3);
 
   const linesXml = validItems
     .map((it, idx) => {
       const lineId = idx + 1;
       const desc = escapeXml(it?.desc || "");
-      const qty = 1;
+      const qty = Number(it?.quantity) > 0 ? Number(it?.quantity) : 1;
       const lineTotal = Number(it?.amount_jod || 0).toFixed(3);
-      const price = Number(it?.amount_jod || 0).toFixed(3);
+      const unitPrice = (Number(it?.amount_jod || 0) / qty).toFixed(3);
 
       return `
   <cac:InvoiceLine>
@@ -771,9 +798,16 @@ function buildUblInvoiceXml(inv) {
     <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${lineTotal}</cbc:LineExtensionAmount>
     <cac:Item>
       <cbc:Name>${desc}</cbc:Name>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>${taxCategoryId}</cbc:ID>
+        <cbc:Percent>${taxPercent}</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
     </cac:Item>
     <cac:Price>
-      <cbc:PriceAmount currencyID="${escapeXml(currency)}">${price}</cbc:PriceAmount>
+      <cbc:PriceAmount currencyID="${escapeXml(currency)}">${unitPrice}</cbc:PriceAmount>
     </cac:Price>
   </cac:InvoiceLine>`;
     })
@@ -794,20 +828,19 @@ function buildUblInvoiceXml(inv) {
   <cbc:UUID>${escapeXml(uuid)}</cbc:UUID>
   <cbc:IssueDate>${escapeXml(issueDate)}</cbc:IssueDate>
 
-  <!-- ✅ NOTE لازم قبل InvoiceTypeCode (حسب الـ XSD اللي عندهم) -->
+  <cbc:InvoiceTypeCode name="${typeCodeName}">388</cbc:InvoiceTypeCode>
+
   ${noteText ? `<cbc:Note>${escapeXml(noteText)}</cbc:Note>` : ""}
-
-  <cbc:InvoiceTypeCode name="012">388</cbc:InvoiceTypeCode>
-
-  <!-- ✅ بعد InvoiceTypeCode لازم يجي LineCountNumeric / BuyerReference (ضمن المتوقع) -->
-  <cbc:LineCountNumeric>${lineCount}</cbc:LineCountNumeric>
-  ${buyerRef ? `<cbc:BuyerReference>${escapeXml(buyerRef)}</cbc:BuyerReference>` : ""}
 
   <cbc:DocumentCurrencyCode>${escapeXml(currency)}</cbc:DocumentCurrencyCode>
   <cbc:TaxCurrencyCode>${escapeXml(currency)}</cbc:TaxCurrencyCode>
 
+  <cbc:LineCountNumeric>${lineCount}</cbc:LineCountNumeric>
+  ${buyerRef ? `<cbc:BuyerReference>${escapeXml(buyerRef)}</cbc:BuyerReference>` : ""}
+
   <cac:AccountingSupplierParty>
     <cac:Party>
+      ${supplierTax ? `<cac:PartyIdentification><cbc:ID>${escapeXml(supplierTax)}</cbc:ID></cac:PartyIdentification>` : ''}
       <cac:PartyName><cbc:Name>${escapeXml(supplierName)}</cbc:Name></cac:PartyName>
       <cac:PostalAddress>
         <cbc:CityName>${escapeXml(supplierCity)}</cbc:CityName>
@@ -822,11 +855,15 @@ function buildUblInvoiceXml(inv) {
       </cac:PartyTaxScheme>`
           : ""
       }
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>${escapeXml(supplierName)}</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
     </cac:Party>
   </cac:AccountingSupplierParty>
 
   <cac:AccountingCustomerParty>
     <cac:Party>
+      ${einv.buyerTaxNo ? `<cac:PartyIdentification><cbc:ID>${escapeXml(einv.buyerTaxNo)}</cbc:ID></cac:PartyIdentification>` : ''}
       <cac:PartyName><cbc:Name>${escapeXml(buyerName)}</cbc:Name></cac:PartyName>
       <cac:PostalAddress>
         <cbc:CityName>${escapeXml(buyerCity)}</cbc:CityName>
@@ -842,6 +879,9 @@ function buildUblInvoiceXml(inv) {
       </cac:PartyTaxScheme>`
           : ""
       }
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>${escapeXml(buyerName)}</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
       ${
         einv.buyerPhone
           ? `
@@ -852,14 +892,25 @@ function buildUblInvoiceXml(inv) {
   </cac:AccountingCustomerParty>
 
   <cac:TaxTotal>
-    <cbc:TaxAmount currencyID="${escapeXml(currency)}">0.000</cbc:TaxAmount>
+    <cbc:TaxAmount currencyID="${escapeXml(currency)}">${taxAmountVal}</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="${escapeXml(currency)}">${total}</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="${escapeXml(currency)}">${taxAmountVal}</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>${taxCategoryId}</cbc:ID>
+        <cbc:Percent>${taxPercent}</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
   </cac:TaxTotal>
 
   <cac:LegalMonetaryTotal>
     <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${total}</cbc:LineExtensionAmount>
     <cbc:TaxExclusiveAmount currencyID="${escapeXml(currency)}">${total}</cbc:TaxExclusiveAmount>
-    <cbc:TaxInclusiveAmount currencyID="${escapeXml(currency)}">${total}</cbc:TaxInclusiveAmount>
-    <cbc:PayableAmount currencyID="${escapeXml(currency)}">${total}</cbc:PayableAmount>
+    <cbc:TaxInclusiveAmount currencyID="${escapeXml(currency)}">${taxInclusiveTotal}</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="${escapeXml(currency)}">${taxInclusiveTotal}</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
 
   ${linesXml}
@@ -868,76 +919,145 @@ function buildUblInvoiceXml(inv) {
   return xml.trim();
 }
 
-async function submitInvoiceToEInv(invoiceId, res) {
+async function submitInvoiceToEInv(invoiceId, res = null) {
   const inv = await Invoice.findById(invoiceId);
-  if (!inv) return res.status(404).json({ error: "Invoice not found" });
-
-  const xml = buildUblInvoiceXml(inv);
-  const invoiceBase64 = Buffer.from(xml, "utf8").toString("base64");
-
-  const urlRaw = String(process.env.EINV_URL || "").trim();
-  const clientId = String(process.env.EINV_CLIENT_ID || "").trim();
-  const secretKey = String(process.env.EINV_SECRET_KEY || "").trim();
-
-  if (!urlRaw)
-    return res.status(500).json({ error: "Missing EINV_URL in .env" });
-  if (!clientId || !secretKey) {
-    return res
-      .status(500)
-      .json({ error: "Missing EINV_CLIENT_ID or EINV_SECRET_KEY in .env" });
+  if (!inv) {
+    if (res) return res.status(404).json({ error: "Invoice not found" });
+    return { ok: false, error: "Invoice not found", status: 404 };
   }
 
-  const url = urlRaw.replace(/\s+/g, ""); // تنظيف مسافات
-  console.log("EINV URL:", url);
-  console.log("ClientId len:", clientId.length);
-  console.log("SecretKey len:", secretKey.length);
+  if (inv.einv_status === "submitted") {
+    if (res)
+      return res
+        .status(409)
+        .json({ error: "Invoice already submitted", einv_status: "submitted" });
+    return {
+      ok: false,
+      error: "Invoice already submitted",
+      status: 409,
+      einv_status: "submitted",
+    };
+  }
 
-  const einv = normalizeEInv(inv?.einv);
-  console.log("IncomeSourceSeq:", einv.incomeSourceSeq || "[MISSING]");
-  console.log(
-    "SupplierTax (.env):",
-    String(process.env.EINV_SUPPLIER_TAXNO || "") || "[MISSING]",
-  );
-  console.log("UBL XML FULL:\n", xml);
+  try {
+    const xml = buildUblInvoiceXml(inv);
+    const invoiceBase64 = Buffer.from(xml, "utf8").toString("base64");
 
-  const resp = await axios.post(
-    url,
-    { invoice: invoiceBase64 },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        "Client-Id": clientId,
-        "Secret-Key": secretKey,
-        Accept: "application/json, text/plain, */*",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JoFotaraClient/1.0",
+    const urlRaw = String(process.env.EINV_URL || "").trim();
+    const clientId = String(process.env.EINV_CLIENT_ID || "").trim();
+    const secretKey = String(process.env.EINV_SECRET_KEY || "").trim();
+
+    if (!urlRaw) {
+      inv.einv_status = "failed";
+      inv.einv_error = "Missing EINV_URL in .env";
+      await inv.save();
+      if (res) return res.status(500).json({ error: inv.einv_error });
+      return { ok: false, error: inv.einv_error, status: 500 };
+    }
+    if (!clientId || !secretKey) {
+      inv.einv_status = "failed";
+      inv.einv_error = "Missing EINV_CLIENT_ID or EINV_SECRET_KEY in .env";
+      await inv.save();
+      if (res) return res.status(500).json({ error: inv.einv_error });
+      return { ok: false, error: inv.einv_error, status: 500 };
+    }
+
+    const url = urlRaw.replace(/\s+/g, ""); // تنظيف مسافات
+    console.log("EINV URL:", url);
+    console.log("ClientId len:", clientId.length);
+    console.log("SecretKey len:", secretKey.length);
+
+    const einv = normalizeEInv(inv?.einv);
+    console.log("IncomeSourceSeq:", einv.incomeSourceSeq || "[MISSING]");
+    console.log(
+      "SupplierTax (.env):",
+      String(process.env.EINV_SUPPLIER_TAXNO || "") || "[MISSING]",
+    );
+    const xmlBytes = Buffer.byteLength(xml, "utf8");
+    const roundTrip = xml === Buffer.from(invoiceBase64, "base64").toString("utf8");
+    console.log("XML UTF-8 bytes:", xmlBytes);
+    console.log("Base64 length:", invoiceBase64.length);
+    console.log("Base64 round-trip:", roundTrip ? "YES" : "NO");
+
+    const resp = await axios.post(
+      url,
+      { invoice: invoiceBase64 },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Client-Id": clientId,
+          "Secret-Key": secretKey,
+          Accept: "application/json, text/plain, */*",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JoFotaraClient/1.0",
+        },
+        timeout: 60_000,
+        validateStatus: () => true,
+        responseType: "text",
       },
-      timeout: 60_000,
-      validateStatus: () => true,
-      responseType: "text",
-    },
-  );
+    );
 
-  if (resp.status >= 400) {
-    console.error("EINV rejected status:", resp.status);
-    console.error("EINV rejected headers:", resp.headers);
-    console.error("EINV rejected body:", resp.data);
+    if (resp.status >= 400) {
+      console.error("EINV rejected status:", resp.status);
+      console.error("EINV rejected body:", resp.data);
 
-    return res.status(resp.status).json({
-      error: "EINV rejected",
-      status: resp.status,
-      data: resp.data,
-      headers: resp.headers,
-    });
+      inv.einv_status = "failed";
+      inv.einv_error = `EINV rejected: HTTP ${resp.status}`;
+      inv.einv_response = { status: resp.status, data: resp.data };
+      inv.einv_submitted_at = null;
+      await inv.save();
+
+      if (res)
+        return res.status(resp.status).json({
+          error: "EINV rejected",
+          status: resp.status,
+          data: resp.data,
+        });
+      return {
+        ok: false,
+        error: inv.einv_error,
+        status: resp.status,
+        einv_status: "failed",
+      };
+    }
+
+    inv.einv_status = "submitted";
+    inv.einv_submitted_at = new Date();
+    inv.einv_response = resp.data;
+    inv.einv_error = null;
+    await inv.save();
+
+    if (res)
+      return res.json({
+        ok: true,
+        sent_invoice_id: invoiceId,
+        invoice_number: inv.invoice_number,
+        response: resp.data,
+      });
+    return {
+      ok: true,
+      sent_invoice_id: invoiceId,
+      invoice_number: inv.invoice_number,
+      einv_status: "submitted",
+    };
+  } catch (e) {
+    console.error("EINV submit exception:", e?.message || e);
+    inv.einv_status = "failed";
+    inv.einv_error = String(e?.message || e);
+    inv.einv_response = null;
+    await inv.save();
+
+    if (res)
+      return res
+        .status(500)
+        .json({ error: "EINV submit failed", message: inv.einv_error });
+    return {
+      ok: false,
+      error: inv.einv_error,
+      status: 500,
+      einv_status: "failed",
+    };
   }
-
-  return res.json({
-    ok: true,
-    sent_invoice_id: invoiceId,
-    invoice_number: inv.invoice_number,
-    response: resp.data,
-    headers: resp.headers,
-  });
 }
 
 app.post("/api/einv/submit/:invoiceId", async (req, res) => {

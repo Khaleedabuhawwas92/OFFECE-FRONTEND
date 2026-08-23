@@ -46,9 +46,24 @@ const form = ref({
   consignor_id: "",
   driver_ids: [],
   items: [
-    { desc: "", amount: "", currency: "JOD", rate_to_jod: 1, amount_jod: 0 },
+    { itemId: "", activityClassification: "", desc: "", quantity: 1, unitPrice: 0, discount: 0, taxMode: "EXEMPT", taxCategory: "O", taxPercent: 0, taxAmount: 0, lineNet: 0, amount_jod: 0 },
   ],
   notes: "",
+
+  // بيانات الفوترة الإلكترونية
+  einv: {
+    invoiceType: "TAX",
+    incomeSourceSeq: "1379984",
+    currency: "JOD",
+    buyerIdType: "TIN",
+    buyerId: "",
+    buyerTaxNo: "",
+    buyerName: "",
+    buyerCityCode: "",
+    buyerCity: "",
+    buyerPhone: "",
+    buyerPostalCode: "",
+  },
 });
 
 /* =========================
@@ -162,10 +177,17 @@ const RATES_TO_JOD = {
 ========================= */
 function makeEmptyItem() {
   return {
+    itemId: "",
+    activityClassification: "",
     desc: "",
-    amount: "",
-    currency: "JOD",
-    rate_to_jod: 1,
+    quantity: 1,
+    unitPrice: 0,
+    discount: 0,
+    taxMode: "EXEMPT",
+    taxCategory: "O",
+    taxPercent: 0,
+    taxAmount: 0,
+    lineNet: 0,
     amount_jod: 0,
   };
 }
@@ -326,6 +348,17 @@ function validate() {
     return hasDesc && hasAmount;
   });
   if (!okItems) return "أدخل تفصيلة واحدة على الأقل (وصف + مبلغ)";
+
+  const e = form.value.einv || {};
+  if (!String(e.invoiceType || "").trim())
+    return "نوع الفاتورة الإلكترونية مطلوب";
+  if (!String(e.incomeSourceSeq || "").trim())
+    return "تسلسل مصدر الدخل مطلوب";
+  if (!String(e.buyerName || "").trim())
+    return "اسم المشتري مطلوب للفوترة";
+  if (!String(e.currency || "").trim())
+    return "عملة الفاتورة الإلكترونية مطلوبة";
+
   return "";
 }
 
@@ -442,9 +475,38 @@ async function saveInvoice() {
       company: form.value.company,
       consignor_id: form.value.consignor_id || undefined,
       driver_ids: form.value.driver_ids,
-      items: form.value.items,
+      items: (form.value.items || []).map((it) => ({
+        itemId: it?.itemId ?? "",
+        activityClassification: it?.activityClassification ?? "",
+        desc: it?.desc ?? "",
+        quantity: Number(it?.quantity ?? 1),
+        unitPrice: Number(it?.unitPrice ?? 0),
+        discount: Number(it?.discount ?? 0),
+        taxMode: it?.taxMode ?? "EXEMPT",
+        taxCategory: it?.taxCategory ?? "O",
+        taxPercent: Number(it?.taxPercent ?? 0),
+        taxAmount: Number(it?.taxAmount ?? 0),
+        lineNet: Number(it?.lineNet ?? 0),
+        amount_jod: Number(it?.amount_jod ?? 0),
+        amount: it?.amount,
+        currency: it?.currency,
+        rate_to_jod: it?.rate_to_jod,
+      })),
       value_jod: Number(itemsTotal.value.toFixed(3)),
       notes: form.value.notes,
+      einv: {
+        invoiceType: form.value.einv?.invoiceType ?? "TAX",
+        incomeSourceSeq: form.value.einv?.incomeSourceSeq ?? "1379984",
+        currency: form.value.einv?.currency ?? "JOD",
+        buyerIdType: form.value.einv?.buyerIdType ?? "TIN",
+        buyerId: form.value.einv?.buyerId ?? "",
+        buyerTaxNo: form.value.einv?.buyerTaxNo ?? "",
+        buyerName: form.value.einv?.buyerName ?? "",
+        buyerCityCode: form.value.einv?.buyerCityCode ?? "",
+        buyerCity: form.value.einv?.buyerCity ?? "",
+        buyerPhone: form.value.einv?.buyerPhone ?? "",
+        buyerPostalCode: form.value.einv?.buyerPostalCode ?? "",
+      },
     };
 
     const res = await axios.post(`${props.apiBase}/api/invoices`, payload);
@@ -575,8 +637,33 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
 
           <div class="form-grid">
             <div class="form-group">
+              <label>نوع الفاتورة</label>
+              <select v-model="form.einv.invoiceType">
+                <option value="TAX">فاتورة ضريبية</option>
+                <option value="SIMPLIFIED">فاتورة ضريبية مبسطة</option>
+                <option value="EXPORT">فاتورة تصدير</option>
+              </select>
+            </div>
+
+            <div class="form-group">
               <label>تاريخ الفاتورة</label>
               <input type="date" v-model="form.date" />
+            </div>
+
+            <div class="form-group">
+              <label>العملة</label>
+              <select v-model="form.einv.currency">
+                <option value="JOD">JOD</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="SAR">SAR</option>
+                <option value="AED">AED</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>تسلسل مصدر الدخل</label>
+              <input type="text" v-model="form.einv.incomeSourceSeq" placeholder="مثال: 1379984" />
             </div>
 
             <div class="form-group">
@@ -682,77 +769,166 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
         </div>
 
         <div class="form-card">
-          <h3>التفاصيل (Enter يفتح سطر جديد)</h3>
+          <h3>تفاصيل البنود</h3>
 
-          <div class="items-table">
-            <div class="items-head">
-              <div>التفصيلة</div>
-              <div>المبلغ</div>
-              <div>العملة</div>
-              <div>نسبة التحويل</div>
-              <div>المبلغ (JOD)</div>
-              <div></div>
-            </div>
-
-            <div class="items-row" v-for="(it, i) in form.items" :key="i">
-              <input
-                :id="`item-desc-${i}`"
-                type="text"
-                v-model="it.desc"
-                placeholder="مثال: أجور نقل / رسوم بوليصة..."
-                @keydown.enter="onItemEnter(i, $event)"
-              />
-
-              <input
-                type="number"
-                v-model="it.amount"
-                placeholder="0"
-                min="0"
-                step="0.001"
-                @input="recalcItem(it)"
-              />
-
-              <select v-model="it.currency" @change="onItemCurrencyChange(it)">
-                <option value="JOD">JOD</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="SAR">SAR</option>
-                <option value="AED">AED</option>
-              </select>
-
-              <input
-                type="number"
-                v-model="it.rate_to_jod"
-                step="0.0001"
-                @input="recalcItem(it)"
-              />
-
-              <input type="number" :value="it.amount_jod" disabled />
-
-              <button
-                type="button"
-                class="btn btn--danger btn--small"
-                @click="removeItemRow(i)"
-                title="حذف السطر"
-              >
-                ×
-              </button>
-            </div>
-
-            <div class="items-actions">
-              <button
-                type="button"
-                class="btn btn--secondary"
-                @click="addItemRow"
-              >
-                ➕ إضافة سطر
-              </button>
-
-              <div class="items-total">
-                <span>المجموع:</span>
-                <strong>{{ itemsTotal.toFixed(3) }}</strong>
-                <span>JOD</span>
+          <div class="items-wrap">
+            <div class="items-table">
+              <div class="items-head">
+                <div>رقم / معرف البند</div>
+                <div>التصنيف الوطني</div>
+                <div>الوصف</div>
+                <div>الكمية</div>
+                <div>سعر الوحدة</div>
+                <div>الخصم</div>
+                <div>نوع الضريبة</div>
+                <div>نسبة الضريبة</div>
+                <div>قيمة الضريبة</div>
+                <div>صافي البند</div>
+                <div>الإجمالي</div>
+                <div></div>
               </div>
+
+              <div class="items-row" v-for="(it, i) in form.items" :key="i">
+                <input
+                  :id="`item-id-${i}`"
+                  type="text"
+                  v-model="it.itemId"
+                  placeholder="معرف البند"
+                />
+
+                <input
+                  type="text"
+                  v-model="it.activityClassification"
+                  placeholder="التصنيف"
+                />
+
+                <input
+                  :id="`item-desc-${i}`"
+                  type="text"
+                  v-model="it.desc"
+                  placeholder="مثال: أجور نقل / رسوم بوليصة..."
+                  @keydown.enter="onItemEnter(i, $event)"
+                />
+
+                <input
+                  type="number"
+                  v-model="it.quantity"
+                  placeholder="1"
+                  min="0"
+                  step="1"
+                />
+
+                <input
+                  type="number"
+                  v-model="it.unitPrice"
+                  placeholder="0"
+                  min="0"
+                  step="0.001"
+                />
+
+                <input
+                  type="number"
+                  v-model="it.discount"
+                  placeholder="0"
+                  min="0"
+                  step="0.001"
+                />
+
+                <select v-model="it.taxMode">
+                  <option value="EXEMPT">معفى</option>
+                  <option value="ZERO">صفرية</option>
+                  <option value="STANDARD">خاضع</option>
+                  <option value="SPECIAL">خاصة</option>
+                </select>
+
+                <input
+                  type="number"
+                  v-model="it.taxPercent"
+                  placeholder="0"
+                  min="0"
+                  step="0.01"
+                />
+
+                <input type="number" :value="it.taxAmount" disabled />
+
+                <input type="number" :value="it.lineNet" disabled />
+
+                <input type="number" :value="it.amount_jod" disabled />
+
+                <button
+                  type="button"
+                  class="btn btn--danger btn--small"
+                  @click="removeItemRow(i)"
+                  title="حذف السطر"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="items-actions">
+            <button
+              type="button"
+              class="btn btn--secondary"
+              @click="addItemRow"
+            >
+              ➕ إضافة سطر
+            </button>
+
+            <div class="items-total">
+              <span>المجموع:</span>
+              <strong>{{ itemsTotal.toFixed(3) }}</strong>
+              <span>JOD</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h3>بيانات المشتري</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>اسم المشتري</label>
+              <input type="text" v-model="form.einv.buyerName" placeholder="شركة..." />
+            </div>
+
+            <div class="form-group">
+              <label>نوع الهوية</label>
+              <select v-model="form.einv.buyerIdType">
+                <option value="TIN">TIN</option>
+                <option value="NIN">NIN</option>
+                <option value="OTHER">OTHER</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>رقم الهوية / التعريف</label>
+              <input type="text" v-model="form.einv.buyerId" placeholder="" />
+            </div>
+
+            <div class="form-group">
+              <label>الرقم الضريبي</label>
+              <input type="text" v-model="form.einv.buyerTaxNo" placeholder="" />
+            </div>
+
+            <div class="form-group">
+              <label>كود المدينة</label>
+              <input type="text" v-model="form.einv.buyerCityCode" placeholder="" />
+            </div>
+
+            <div class="form-group">
+              <label>المدينة</label>
+              <input type="text" v-model="form.einv.buyerCity" placeholder="" />
+            </div>
+
+            <div class="form-group">
+              <label>رقم الهاتف</label>
+              <input type="text" v-model="form.einv.buyerPhone" placeholder="" />
+            </div>
+
+            <div class="form-group">
+              <label>الرمز البريدي</label>
+              <input type="text" v-model="form.einv.buyerPostalCode" placeholder="" />
             </div>
           </div>
         </div>
@@ -1081,15 +1257,23 @@ select:focus {
   cursor: not-allowed;
 }
 
+.items-wrap {
+  overflow-x: auto;
+  border: 1px solid #e6e8ef;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fbfcfe;
+}
 .items-table {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 1100px;
 }
 .items-head,
 .items-row {
   display: grid;
-  grid-template-columns: 1fr 130px 90px 130px 140px 44px;
+  grid-template-columns: 110px 110px 1fr 80px 100px 80px 110px 90px 90px 90px 100px 44px;
   gap: 8px;
   align-items: center;
 }
@@ -1125,7 +1309,7 @@ select:focus {
 @media (max-width: 700px) {
   .items-head,
   .items-row {
-    grid-template-columns: 1fr 110px 80px 110px 120px 44px;
+    grid-template-columns: 100px 100px 1fr 70px 90px 70px 100px 80px 80px 80px 90px 44px;
   }
 }
 @media (max-width: 560px) {

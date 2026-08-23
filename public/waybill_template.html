@@ -24,9 +24,8 @@
       .page {
         width: 202mm; /* 210 - 8 */
         height: 289mm; /* 297 - 8 */
-        padding: 4mm 4mm 12mm;
-        border: 1px solid #000;
-        position: relative;
+        padding: 2mm 4mm 4mm;
+        border: 1px solid #222;
         overflow: hidden;
       }
       .header-top {
@@ -52,10 +51,10 @@
         text-align: center;
       }
       .besm {
-        font-size: 17px;
+        font-size: 18px;
         font-weight: bold;
-        margin-top: -5px;
-        margin-bottom: 3px;
+        margin-top: -6px;
+        margin-bottom: 2px;
       }
       .logo-img {
         width: 100px;
@@ -72,9 +71,9 @@
       }
       .header-title {
         text-align: center;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
         font-weight: bold;
-        font-size: 12px;
+        font-size: 13px;
       }
       table.waybill {
         width: 100%;
@@ -82,28 +81,28 @@
         table-layout: fixed;
       }
       table.waybill td {
-        border: 1px solid #000;
-        padding: 2px 3px;
+        border: 1px solid #222;
+        padding: 4px 5px;
         vertical-align: top;
-        line-height: 1.2;
+        line-height: 1.35;
         white-space: normal;
         overflow-wrap: anywhere;
         word-break: break-word;
       }
       .small {
-        font-size: 9px;
+        font-size: 10px;
       }
       .border-right-2 {
-        border-right-width: 1px !important;
+        border-right-width: 1.25px !important;
       }
       .border-left-2 {
-        border-left-width: 1px !important;
+        border-left-width: 1.25px !important;
       }
       .border-top-2 {
-        border-top-width: 2px !important;
+        border-top-width: 1.25px !important;
       }
       .border-bottom-2 {
-        border-bottom-width: 2px !important;
+        border-bottom-width: 1.25px !important;
       }
       .center {
         text-align: center;
@@ -112,6 +111,7 @@
         display: flex;
         justify-content: space-between;
         gap: 4px;
+        font-weight: 600;
       }
       .label-row .en {
         text-align: left;
@@ -128,28 +128,14 @@
       .value {
         overflow-wrap: anywhere;
         word-break: break-word;
-        text-align: center; /* ✅ هذا هو التوسيط */
-        font-weight: 700; /* اختياري */
-      } /* ✅ لتوسيط القيم المدخلة داخل الخانات */
+        text-align: center;
+        font-weight: 600;
+        font-size: 11px;
+      }
       .val-center {
         text-align: center;
-        font-weight: 700;
-      }
-      .footer-fixed {
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 2mm;
-        width: 100%;
-        text-align: center;
-        font-size: 12px;
-        line-height: 1.15;
-        padding: 0 3mm;
-        white-space: nowrap;
-        break-inside: avoid;
-        page-break-inside: avoid;
-        direction: rtl;
-        unicode-bidi: plaintext;
+        font-weight: 600;
+        font-size: 11px;
       }
       @media print {
         body {
@@ -227,7 +213,7 @@
               ><span class="ar small">العنوان / الهاتف</span>
             </div>
           </td>
-          <td class="border-right-2">
+          <td class="border-right-2" style="height: 60px">
             <div class="label-row">
               <span class="en">Consignor (Shipper)</span
               ><span class="ar">المرسل</span>
@@ -258,7 +244,7 @@
               ><span class="ar small">العنوان / الهاتف</span>
             </div>
           </td>
-          <td class="border-right-2">
+          <td class="border-right-2" style="height: 60px">
             <div class="label-row">
               <span class="en">Carrier</span><span class="ar">الناقل</span>
             </div>
@@ -267,14 +253,14 @@
         </tr>
         <!-- Place/date delivery / taking over -->
         <tr>
-          <td class="border-left-2" style="height: 32px">
+          <td class="border-left-2" style="height: 34px">
             <div class="label-row">
               <span class="en">Place and date of delivery of the goods</span>
               <span class="ar">مكان وتاريخ تسليم البضاعة</span>
             </div>
             <div class="value val-center">{{DELIVERY_PLACE_DATE}}</div>
           </td>
-          <td class="border-right-2">
+          <td class="border-right-2" style="height: 34px">
             <div class="label-row">
               <span class="en">Place and date taking over the goods</span>
               <span class="ar">مكان وتاريخ استلام البضاعة</span>
@@ -286,13 +272,13 @@
         <tr>
           <td
             class="border-left-2"
-            style="vertical-align: top; height: 130px; padding: 6px 6px"
+            style="vertical-align: top; height: 130px; padding: 5px 5px"
           >
             <div class="label-row" style="margin-bottom: 6px">
               <span class="en small">Carrier Reservation and Observation</span>
               <span class="ar small">(11) ملاحظات وحجوزات الناقل</span>
             </div>
-            <div style="font-size: 10px; line-height: 1.6">
+            <div style="font-size: 11px; line-height: 1.5">
               <div
                 style="
                   display: grid;
@@ -307,7 +293,7 @@
                 </div>
                 <div
                   style="
-                    border: 1px solid #000;
+                    border: 1px solid #222;
                     text-align: center;
                     font-weight: bold;
                     font-size: 11px;
@@ -331,7 +317,7 @@
                 <div style="direction: rtl; text-align: right">أجور الشحن</div>
                 <div
                   style="
-                    border: 1px solid #000;
+                    border: 1px solid #222;
                     text-align: center;
                     font-weight: bold;
                     font-size: 11px;
@@ -365,12 +351,12 @@
               <tr>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
+                    border-bottom: 1px solid #222;
                     padding: 0;
                     text-align: center;
                   "
                 >
-                  <div style="border-bottom: 1px solid #000; padding: 2px 1px">
+                  <div style="border-bottom: 1px solid #222; padding: 3px 2px">
                     <div class="ar small" style="display: block">
                       (10) نوع وسيلة النقل
                     </div>
@@ -379,14 +365,14 @@
                 </td>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
+                    border-bottom: 1px solid #222;
                     padding: 0;
                     text-align: center;
-                    border-left: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-left: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                 >
-                  <div style="border-bottom: 1px solid #000; padding: 2px 1px">
+                  <div style="border-bottom: 1px solid #222; padding: 3px 2px">
                     <div class="ar small" style="display: block">
                       (11) رقم تسجيل المركبة
                     </div>
@@ -395,12 +381,12 @@
                 </td>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
+                    border-bottom: 1px solid #222;
                     padding: 0;
                     text-align: center;
                   "
                 >
-                  <div style="border-bottom: 1px solid #000; padding: 2px 1px">
+                  <div style="border-bottom: 1px solid #222; padding: 3px 2px">
                     <div class="ar small" style="display: block">
                       (12) اسم السائق
                     </div>
@@ -411,8 +397,8 @@
               <tr>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
-                    height: 23px;
+                    border-bottom: 1px solid #222;
+                    height: 26px;
                     text-align: center;
                   "
                   class="val-center"
@@ -421,9 +407,9 @@
                 </td>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
-                    border-left: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-bottom: 1px solid #222;
+                    border-left: 1px solid #222;
+                    border-right: 1px solid #222;
                     padding: 0;
                   "
                 >
@@ -431,17 +417,17 @@
                     style="
                       display: flex;
                       justify-content: space-between;
-                      padding: 2px 3px;
+                      padding: 3px 4px;
                       direction: rtl;
                       font-size: 11px;
                     "
                   >
-                    <span style="font-weight: bold">{{VEHICLE1_NO}}</span
+                    <span style="font-weight: 600">{{VEHICLE1_NO}}</span
                     ><span>{{VEHICLE1_REGION}}</span>
                   </div>
                 </td>
                 <td
-                  style="border-bottom: 1px solid #000; text-align: center"
+                  style="border-bottom: 1px solid #222; text-align: center"
                   class="val-center"
                 >
                   {{DRIVER1_NAME}}
@@ -450,8 +436,8 @@
               <tr>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
-                    height: 18px;
+                    border-bottom: 1px solid #222;
+                    height: 21px;
                     text-align: center;
                   "
                   class="val-center"
@@ -460,9 +446,9 @@
                 </td>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
-                    border-left: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-bottom: 1px solid #222;
+                    border-left: 1px solid #222;
+                    border-right: 1px solid #222;
                     padding: 0;
                   "
                 >
@@ -470,17 +456,17 @@
                     style="
                       display: flex;
                       justify-content: space-between;
-                      padding: 2px 3px;
+                      padding: 3px 4px;
                       direction: rtl;
                       font-size: 11px;
                     "
                   >
-                    <span style="font-weight: bold">{{VEHICLE2_NO}}</span
+                    <span style="font-weight: 600">{{VEHICLE2_NO}}</span
                     ><span>{{VEHICLE2_REGION}}</span>
                   </div>
                 </td>
                 <td
-                  style="border-bottom: 1px solid #000; text-align: center"
+                  style="border-bottom: 1px solid #222; text-align: center"
                   class="val-center"
                 >
                   {{DRIVER2_NAME}}
@@ -489,8 +475,8 @@
               <tr>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
-                    height: 18px;
+                    border-bottom: 1px solid #222;
+                    height: 21px;
                     text-align: center;
                   "
                   class="val-center"
@@ -499,9 +485,9 @@
                 </td>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
-                    border-left: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-bottom: 1px solid #222;
+                    border-left: 1px solid #222;
+                    border-right: 1px solid #222;
                     padding: 0;
                   "
                 >
@@ -509,17 +495,17 @@
                     style="
                       display: flex;
                       justify-content: space-between;
-                      padding: 2px 3px;
+                      padding: 3px 4px;
                       direction: rtl;
                       font-size: 11px;
                     "
                   >
-                    <span style="font-weight: bold">{{VEHICLE3_NO}}</span
+                    <span style="font-weight: 600">{{VEHICLE3_NO}}</span
                     ><span>{{VEHICLE3_REGION}}</span>
                   </div>
                 </td>
                 <td
-                  style="border-bottom: 1px solid #000; text-align: center"
+                  style="border-bottom: 1px solid #222; text-align: center"
                   class="val-center"
                 >
                   {{DRIVER3_NAME}}
@@ -528,7 +514,7 @@
               <tr>
                 <td
                   colspan="3"
-                  style="padding: 2px 3px; height: 45px; vertical-align: top"
+                  style="padding: 3px 4px; height: 42px; vertical-align: top"
                 >
                   <div class="label-row">
                     <span class="en">Route to final destination</span
@@ -547,14 +533,14 @@
         </tr>
         <!-- Annexed Documents / Customs -->
         <tr>
-          <td class="border-left-2" style="height: 30px">
+          <td class="border-left-2" style="height: 32px">
             <div class="label-row">
               <span class="en">Annexed Documents</span
               ><span class="ar">المستندات المرفقة</span>
             </div>
             <div class="value val-center">{{ANNEXED_DOCS}}</div>
           </td>
-          <td class="border-right-2">
+          <td class="border-right-2" style="height: 32px">
             <div class="label-row">
               <span class="en">No. of Customs Declarations</span
               ><span class="ar">عدد بيانات الجمارك</span>
@@ -586,8 +572,8 @@
               <tr>
                 <td
                   style="
-                    border-right: 1px solid #000;
-                    padding: 2px 3px;
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
                     text-align: center;
                   "
                 >
@@ -596,8 +582,8 @@
                 </td>
                 <td
                   style="
-                    border-right: 1px solid #000;
-                    padding: 2px 3px;
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
                     text-align: center;
                   "
                 >
@@ -606,8 +592,8 @@
                 </td>
                 <td
                   style="
-                    border-right: 1px solid #000;
-                    padding: 2px 3px;
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
                     text-align: center;
                   "
                 >
@@ -616,8 +602,8 @@
                 </td>
                 <td
                   style="
-                    border-right: 1px solid #000;
-                    padding: 2px 3px;
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
                     text-align: center;
                   "
                 >
@@ -626,15 +612,15 @@
                 </td>
                 <td
                   style="
-                    border-right: 1px solid #000;
-                    padding: 2px 3px;
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
                     text-align: center;
                   "
                 >
                   <div class="ar small">(16) عدد الطرود</div>
                   <div class="en">No. of Packages</div>
                 </td>
-                <td style="padding: 2px 3px; text-align: center">
+                <td style="padding: 3px 4px; text-align: center">
                   <div class="ar small">(17) نوع التغليف</div>
                   <div class="en">Method of Packing</div>
                 </td>
@@ -642,9 +628,9 @@
               <tr>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
-                    height: 24px;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
+                    height: 28px;
                     text-align: center;
                   "
                   class="val-center"
@@ -653,8 +639,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     text-align: center;
                   "
                   class="val-center"
@@ -663,8 +649,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     text-align: center;
                   "
                   class="val-center"
@@ -673,8 +659,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     text-align: center;
                   "
                   class="val-center"
@@ -683,8 +669,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     text-align: center;
                   "
                   class="val-center"
@@ -692,7 +678,7 @@
                   {{PACKAGES_COUNT}}
                 </td>
                 <td
-                  style="border-top: 1px solid #000; text-align: center"
+                  style="border-top: 1px solid #222; text-align: center"
                   class="val-center"
                 >
                   {{PACKING_METHOD}}
@@ -703,14 +689,14 @@
         </tr>
         <!-- Demurrage at loading -->
         <tr>
-          <td class="border-left-2" style="height: 26px">
+          <td class="border-left-2" style="height: 28px">
             <div class="label-row">
               <span class="en">Demurrage at loading</span
               ><span class="ar">(23) مدة المكوث عند التحميل</span>
             </div>
             <div class="value val-center">{{DEMURRAGE_LOADING}}</div>
           </td>
-          <td class="border-right-2">
+          <td class="border-right-2" style="height: 28px">
             <div class="label-row">
               <span class="en">Dangerous Goods Instruction</span
               ><span class="ar">(22) تعليمات مواد خطرة</span>
@@ -737,7 +723,7 @@
               <tr>
                 <td
                   colspan="4"
-                  style="border-bottom: 1px solid #000; padding: 2px 3px"
+                  style="border-bottom: 1px solid #222; padding: 3px 4px"
                 >
                   <div class="label-row">
                     <span class="en">Demurrage at Discharge</span>
@@ -757,8 +743,8 @@
                 <td
                   colspan="4"
                   style="
-                    border-bottom: 1px solid #000;
-                    padding: 2px 3px;
+                    border-bottom: 1px solid #222;
+                    padding: 3px 4px;
                     direction: rtl;
                     text-align: right;
                   "
@@ -772,31 +758,31 @@
               <!-- ✅ رؤوس الأعمدة مثل الصورة -->
               <tr>
                 <td
-                  style="border-right: 1px solid #000; padding: 2px 3px"
+                  style="border-right: 1px solid #222; padding: 3px 4px"
                   class="small center"
                 >
                   المرسل إليه
                 </td>
                 <td
-                  style="border-right: 1px solid #000; padding: 2px 3px"
+                  style="border-right: 1px solid #222; padding: 3px 4px"
                   class="small center"
                 >
                   العملة المستعملة
                 </td>
                 <td
-                  style="border-right: 1px solid #000; padding: 2px 3px"
+                  style="border-right: 1px solid #222; padding: 3px 4px"
                   class="small center"
                 >
                   الشاحن / المرسل
                 </td>
-                <td style="padding: 2px 3px" class="small center">الأجور</td>
+                <td style="padding: 3px 4px" class="small center">الأجور</td>
               </tr>
               <!-- صف 1 -->
               <tr>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     height: 28px;
                   "
                   class="val-center"
@@ -805,8 +791,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                   class="val-center"
                 >
@@ -814,8 +800,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                   class="val-center"
                 >
@@ -823,10 +809,10 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
+                    border-top: 1px solid #222;
                     direction: rtl;
                     text-align: right;
-                    font-weight: 900;
+                    font-weight: 700;
                   "
                 >
                   الأجور
@@ -836,8 +822,8 @@
               <tr>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     height: 28px;
                   "
                   class="val-center"
@@ -846,8 +832,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                   class="val-center"
                 >
@@ -855,8 +841,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                   class="val-center"
                 >
@@ -864,10 +850,10 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
+                    border-top: 1px solid #222;
                     direction: rtl;
                     text-align: right;
-                    font-weight: 900;
+                    font-weight: 700;
                   "
                 >
                   الأجور الأخرى
@@ -877,8 +863,8 @@
               <tr>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     height: 28px;
                   "
                   class="val-center"
@@ -887,8 +873,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                   class="val-center"
                 >
@@ -896,8 +882,8 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                   class="val-center"
                 >
@@ -905,10 +891,10 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
+                    border-top: 1px solid #222;
                     direction: rtl;
                     text-align: right;
-                    font-weight: 900;
+                    font-weight: 700;
                   "
                 >
                   الأجور الإضافية
@@ -918,8 +904,8 @@
               <tr>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                     height: 24px;
                   "
                   class="val-center"
@@ -928,20 +914,20 @@
                 </td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                 ></td>
                 <td
                   style="
-                    border-top: 1px solid #000;
-                    border-right: 1px solid #000;
+                    border-top: 1px solid #222;
+                    border-right: 1px solid #222;
                   "
                   class="small center"
                 >
                   Deductions<br />الخصم
                 </td>
-                <td style="border-top: 1px solid #000" class="small center">
+                <td style="border-top: 1px solid #222" class="small center">
                   Total<br />المجموع
                 </td>
               </tr>
@@ -959,8 +945,8 @@
               <tr>
                 <td
                   style="
-                    border-right: 1px solid #000;
-                    padding: 2px 4px;
+                    border-right: 1px solid #222;
+                    padding: 4px 5px;
                     vertical-align: top;
                   "
                 >
@@ -971,7 +957,7 @@
                       margin-bottom: 3px;
                     "
                   >
-                    <span style="font-size: 11px; font-weight: bold"
+                    <span style="font-size: 11px; font-weight: 600"
                       >Consigner Instruction</span
                     >
                     <span style="font-size: 11px; direction: rtl"
@@ -981,8 +967,8 @@
                   <div
                     style="
                       direction: rtl;
-                      font-size: 10px;
-                      line-height: 1.3;
+                      font-size: 11px;
+                      line-height: 1.4;
                       white-space: normal;
                       word-wrap: break-word;
                     "
@@ -994,7 +980,7 @@
               <tr>
                 <td
                   style="
-                    border-right: 1px solid #000;
+                    border-right: 1px solid #222;
                     padding: 4px 5px;
                     vertical-align: top;
                   "
@@ -1005,7 +991,7 @@
                       border-collapse: collapse;
                       border: none;
                       font-size: 10px;
-                      line-height: 1.35;
+                      line-height: 1.4;
                     "
                   >
                     <tr>
@@ -1040,9 +1026,9 @@
               <tr>
                 <td
                   style="
-                    border-bottom: 1px solid #000;
-                    padding: 4px 3px;
-                    height: 60px;
+                    border-bottom: 1px solid #222;
+                    padding: 4px 5px;
+                    height: 55px;
                   "
                 >
                   <div class="label-row">
@@ -1058,7 +1044,7 @@
                 </td>
               </tr>
               <tr>
-                <td style="padding: 5px 3px; height: 85px">
+                <td style="padding: 5px 4px; height: 70px">
                   <div class="label-row">
                     <span class="en">Cash on Delivery</span
                     ><span class="ar">(29) الدفع عند التسليم</span>
@@ -1079,7 +1065,7 @@
           <td
             style="
               width: 33%;
-              border-right: 1px solid #000;
+              border-right: 1px solid #222;
               padding: 4px 5px;
               vertical-align: top;
             "
@@ -1090,14 +1076,14 @@
                 border-collapse: collapse;
                 border: none;
                 font-size: 10px;
-                line-height: 1.35;
+                line-height: 1.4;
               "
             >
               <tr>
                 <td
                   style="
                     text-align: left;
-                    font-weight: bold;
+                    font-weight: 600;
                     border: none;
                     padding: 0;
                   "
@@ -1164,10 +1150,6 @@
           </td>
         </tr>
       </table>
-      <div class="footer-fixed">
-        عمّان - أبو علندا - بجانب البنك الإسلامي تلفاكس 4162136، ت: 4162133 —
-        Amman - Abu Alanda Near Islamic Bank Telfax 4162136 P.O. Box 44 Jordan
-      </div>
     </div>
   </body>
 </html>

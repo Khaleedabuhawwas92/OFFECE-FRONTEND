@@ -108,6 +108,87 @@ const form = ref({
 });
 
 /* =========================
+   Route section split fields
+========================= */
+const takingPlace = ref(form.value.ISSUING_PLACE || "");
+const takingDate = ref(form.value.DATE || "");
+const deliveryPlace = ref(form.value.ISSUING_PLACE || "");
+const deliveryDate = ref(
+  addDays(form.value.DATE, form.value.RESERVATION_DAYS || 2),
+);
+
+const errors = ref({
+  takingPlace: "",
+  takingDate: "",
+  deliveryPlace: "",
+  deliveryDate: "",
+  route: "",
+});
+
+const locationOptions = computed(() => {
+  const set = new Set();
+  if (form.value.ISSUING_PLACE) set.add(form.value.ISSUING_PLACE);
+  drivers.value.forEach((d) => {
+    const r = getVehicleRegion(d);
+    if (r) set.add(r);
+  });
+  consignors.value.forEach((c) => {
+    const a = getPartyAddress(c);
+    if (a) set.add(a);
+  });
+  consignees.value.forEach((c) => {
+    const a = getPartyAddress(c);
+    if (a) set.add(a);
+  });
+  return Array.from(set).filter(Boolean);
+});
+
+watch(
+  [takingPlace, takingDate],
+  ([p, d]) => {
+    form.value.TAKING_PLACE_DATE = p && d ? `${p} - ${d}` : "";
+  },
+  { immediate: true },
+);
+
+watch(
+  [deliveryPlace, deliveryDate],
+  ([p, d]) => {
+    form.value.DELIVERY_PLACE_DATE = p && d ? `${p} - ${d}` : "";
+  },
+  { immediate: true },
+);
+
+watch(takingPlace, () => {
+  errors.value.takingPlace = "";
+});
+watch(takingDate, () => {
+  errors.value.takingDate = "";
+});
+watch(deliveryPlace, () => {
+  errors.value.deliveryPlace = "";
+});
+watch(deliveryDate, () => {
+  errors.value.deliveryDate = "";
+});
+watch(
+  () => form.value.ROUTE,
+  () => {
+    errors.value.route = "";
+  },
+);
+
+watch([selectedConsignor, selectedConsignee], ([sc, se]) => {
+  if (!sc || !se) {
+    form.value.ROUTE = "";
+    return;
+  }
+  const from = getLocation(sc);
+  const to = getLocation(se);
+  form.value.ROUTE = from && to ? `${from} → ${to}` : "";
+});
+
+/* =========================
    Fetch lists
 ========================= */
 async function fetchDrivers() {
@@ -175,18 +256,10 @@ onMounted(async () => {
 
 watch(
   () => [form.value.DATE, form.value.RESERVATION_DAYS],
-  () => {
-    if (!form.value.DATE) return;
-
-    const baseDate = form.value.DATE;
-    const days = Number(form.value.RESERVATION_DAYS || 2);
-
-    // مكان الاستلام = مكان الإصدار
-    form.value.TAKING_PLACE_DATE = `${form.value.ISSUING_PLACE} - ${baseDate}`;
-
-    // مكان التسليم = نفس المكان + أيام
-    const deliveryDate = addDays(baseDate, days);
-    form.value.DELIVERY_PLACE_DATE = `${form.value.ISSUING_PLACE} - ${deliveryDate}`;
+  ([date, days]) => {
+    if (!date) return;
+    takingDate.value = date;
+    deliveryDate.value = addDays(date, Number(days || 0));
   },
   { immediate: true },
 );
@@ -293,6 +366,20 @@ function getPartyAddress(p) {
 }
 function getPartyPhone(p) {
   return p?.phone ?? p?.PHONE ?? p?.mobile ?? p?.MOBILE ?? "";
+}
+function getLocation(p) {
+  if (!p) return "";
+  return (
+    p?.city ||
+    p?.CITY ||
+    p?.town ||
+    p?.TOWN ||
+    getPartyAddress(p) ||
+    p?.country ||
+    p?.COUNTRY ||
+    getPartyName(p) ||
+    ""
+  );
 }
 
 /* =========================
@@ -449,6 +536,14 @@ function textToHtmlLines(s) {
     .join("");
 }
 
+function focusFirstInvalid() {
+  const first = document.querySelector(".is-invalid");
+  if (first) {
+    first.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => first.focus(), 300);
+  }
+}
+
 function validate() {
   // ✅ لا تشترط SERIAL_NO — السيرفر مسؤول
   if (!form.value.DATE) return "التاريخ مطلوب";
@@ -456,6 +551,23 @@ function validate() {
   if (!form.value.CONSIGNEE_NAME) return "اختر المستلم من البحث";
   if (!(form.value.driver_ids || []).length) return "اختر سائق/مركبة من البحث";
   if (!form.value.VEHICLE_NO) return "رقم المركبة مطلوب";
+
+  // Route section validation
+  errors.value.takingPlace = takingPlace.value.trim()
+    ? ""
+    : "يرجى اختيار مكان الاستلام";
+  errors.value.takingDate = takingDate.value ? "" : "يرجى تحديد تاريخ الاستلام";
+  errors.value.deliveryPlace = deliveryPlace.value.trim()
+    ? ""
+    : "يرجى اختيار مكان التسليم";
+  errors.value.deliveryDate = deliveryDate.value
+    ? ""
+    : "يرجى تحديد تاريخ التسليم";
+  errors.value.route = form.value.ROUTE?.trim() ? "" : "يرجى تحديد خط السير";
+
+  const hasRouteErrors = Object.values(errors.value).some(Boolean);
+  if (hasRouteErrors) return "يرجى تعبئة بيانات خط السير والاستلام والتسليم";
+
   return "";
 }
 
@@ -499,6 +611,13 @@ function printPreview() {
 }
 
 async function saveWaybill() {
+  const err = validate();
+  if (err) {
+    alert(err);
+    focusFirstInvalid();
+    return;
+  }
+
   loading.value = true;
   try {
     normalizeCharges();
@@ -532,13 +651,13 @@ async function saveWaybill() {
 <template>
   <div class="overlay" @click.self="emit('close')">
     <div class="modal">
-      <div class="modal-top">
-        <div class="title-block">
-          <h1>➕ بوليصة جديدة</h1>
-          <p>اختر المرسل/المستلم/السائق من البحث ثم اعمل معاينة أو حفظ</p>
+      <!-- Header -->
+      <header class="modal-header">
+        <div class="header-title">
+          <h2>بوليصة جديدة</h2>
+          <p>أدخل بيانات البوليصة ثم احفظ أو عاين</p>
         </div>
-
-        <div class="top-actions">
+        <div class="header-actions">
           <button
             class="btn btn--secondary"
             type="button"
@@ -546,618 +665,723 @@ async function saveWaybill() {
           >
             👁 معاينة
           </button>
-
           <button
             class="btn btn--primary"
             type="button"
             :disabled="loading"
             @click="saveWaybill"
           >
-            <span v-if="loading">...جاري الحفظ</span>
+            <span v-if="loading">جاري الحفظ...</span>
             <span v-else>💾 حفظ</span>
           </button>
-
-          <button class="btn btn--x" type="button" @click="emit('close')">
+          <button class="btn btn--ghost" type="button" @click="emit('close')">
             ✕
           </button>
         </div>
-      </div>
+      </header>
 
+      <!-- Body -->
       <div class="modal-body">
-        <div class="page">
-          <div class="card">
-            <!-- 1) بيانات عامة -->
-            <div class="section">
-              <div class="section-title">بيانات عامة</div>
-
-              <div class="grid">
-                <div class="field">
-                  <label>رقم السند (Serial No.)</label>
-                  <input v-model="form.SERIAL_NO" class="input" readonly />
-                </div>
-
-                <div class="field">
-                  <label>التاريخ</label>
-                  <input v-model="form.DATE" type="date" class="input" />
-                </div>
-
-                <div class="field">
-                  <label>مكان الإصدار</label>
-                  <input v-model="form.ISSUING_PLACE" class="input" />
-                </div>
-              </div>
-            </div>
-
-            <!-- 2) المرسل / المستلم -->
-            <div class="section">
-              <div class="section-title">المرسل / المستلم (بحث)</div>
-
-              <div class="grid2">
-                <!-- CONSIGNOR -->
-                <div class="subcard">
-                  <div class="sub-title">المرسل (Consignor)</div>
-
-                  <div class="chips" v-if="selectedConsignor">
-                    <span class="chip">
-                      {{ getPartyName(selectedConsignor) }}
-                      <button
-                        type="button"
-                        class="chip-x"
-                        @click="clearConsignor"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  </div>
-
-                  <input
-                    v-model="consignorQuery"
-                    class="input"
-                    placeholder="ابحث عن المرسل..."
-                    @focus="showConsignorList = true"
-                    @keydown.esc="showConsignorList = false"
-                  />
-
-                  <div class="dropdown" v-if="showConsignorList">
-                    <div class="dropdown-item muted" v-if="loadingConsignors">
-                      جاري تحميل المرسلين...
-                    </div>
-
-                    <button
-                      v-for="c in filteredConsignors"
-                      :key="c._id || c.id"
-                      type="button"
-                      class="dropdown-item"
-                      @click="selectConsignor(c)"
-                    >
-                      <div class="dd-row">
-                        <span class="dd-main">{{ getPartyName(c) }}</span>
-                        <span class="dd-sub" v-if="c?.code || c?.CODE">
-                          {{ c?.code || c?.CODE }}
-                        </span>
-                      </div>
-                    </button>
-
-                    <div
-                      class="dropdown-item muted"
-                      v-if="
-                        !loadingConsignors && filteredConsignors.length === 0
-                      "
-                    >
-                      لا يوجد نتائج
-                    </div>
-                  </div>
-
-                  <div class="mini">
-                    <div>
-                      <b>العنوان:</b> {{ form.CONSIGNOR_ADDRESS || "—" }}
-                    </div>
-                    <div><b>الهاتف:</b> {{ form.CONSIGNOR_PHONE || "—" }}</div>
-                  </div>
-                </div>
-
-                <!-- CONSIGNEE -->
-                <div class="subcard">
-                  <div class="sub-title">المستلم (Consignee)</div>
-
-                  <div class="chips" v-if="selectedConsignee">
-                    <span class="chip">
-                      {{ getPartyName(selectedConsignee) }}
-                      <button
-                        type="button"
-                        class="chip-x"
-                        @click="clearConsignee"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  </div>
-
-                  <input
-                    v-model="consigneeQuery"
-                    class="input"
-                    placeholder="ابحث عن المستلم..."
-                    @focus="showConsigneeList = true"
-                    @keydown.esc="showConsigneeList = false"
-                  />
-
-                  <div class="dropdown" v-if="showConsigneeList">
-                    <div class="dropdown-item muted" v-if="loadingConsignees">
-                      جاري تحميل المستلمين...
-                    </div>
-
-                    <button
-                      v-for="c in filteredConsignees"
-                      :key="c._id || c.id"
-                      type="button"
-                      class="dropdown-item"
-                      @click="selectConsignee(c)"
-                    >
-                      <div class="dd-row">
-                        <span class="dd-main">{{ getPartyName(c) }}</span>
-                        <span class="dd-sub" v-if="c?.code || c?.CODE">
-                          {{ c?.code || c?.CODE }}
-                        </span>
-                      </div>
-                    </button>
-
-                    <div
-                      class="dropdown-item muted"
-                      v-if="
-                        !loadingConsignees && filteredConsignees.length === 0
-                      "
-                    >
-                      لا يوجد نتائج
-                    </div>
-                  </div>
-
-                  <div class="mini">
-                    <div>
-                      <b>العنوان:</b> {{ form.CONSIGNEE_ADDRESS || "—" }}
-                    </div>
-                    <div><b>الهاتف:</b> {{ form.CONSIGNEE_PHONE || "—" }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 3) السائق والمركبة (متعدد) -->
-            <div class="section">
-              <div class="section-title">السائق والمركبة (بحث) — متعدد</div>
-
-              <div class="grid">
-                <div class="field full">
-                  <label
-                    >ابحث برقم السيارة أو اسم السائق واختر (يمكن أكثر من
-                    واحد)</label
-                  >
-
-                  <div class="chips" v-if="selectedDrivers.length">
-                    <span
-                      class="chip"
-                      v-for="d in selectedDrivers"
-                      :key="d._id"
-                    >
-                      {{ getVehicleNo(d) }} - {{ getDriverName(d) }}
-                      <button
-                        type="button"
-                        class="chip-x"
-                        @click="removeDriver(d._id)"
-                      >
-                        ×
-                      </button>
-                    </span>
-
-                    <button
-                      v-if="selectedDrivers.length"
-                      type="button"
-                      class="btn btn--secondary"
-                      style="padding: 6px 10px; border-radius: 999px"
-                      @click="clearDrivers"
-                    >
-                      مسح السواقين
-                    </button>
-                  </div>
-
-                  <input
-                    v-model="driverQuery"
-                    class="input"
-                    placeholder="اكتب رقم السيارة / اسم السائق..."
-                    @focus="showDriverList = true"
-                    @keydown.esc="showDriverList = false"
-                  />
-
-                  <div class="dropdown" v-if="showDriverList">
-                    <div class="dropdown-item muted" v-if="loadingDrivers">
-                      جاري تحميل السواقين...
-                    </div>
-
-                    <button
-                      v-for="d in filteredDrivers"
-                      :key="d._id || d.id"
-                      type="button"
-                      class="dropdown-item"
-                      @click="addDriver(d)"
-                    >
-                      <div class="dd-row">
-                        <span class="dd-main">{{ getVehicleNo(d) }}</span>
-                        <span class="dd-sub">{{ getDriverName(d) }}</span>
-                      </div>
-                    </button>
-
-                    <div
-                      class="dropdown-item muted"
-                      v-if="!loadingDrivers && filteredDrivers.length === 0"
-                    >
-                      لا يوجد نتائج
-                    </div>
-                  </div>
-                </div>
-
-                <div class="field">
-                  <label>نوع وسيلة النقل</label>
-                  <input
-                    v-model="form.TYPE_TRANSPORT"
-                    class="input"
-                    placeholder="Truck / Trailer..."
-                  />
-                </div>
-
-                <div class="field">
-                  <label>رقم المركبة (كل واحد بسطر)</label>
-                  <textarea
-                    :value="selectedVehicleNoText"
-                    class="textarea"
-                    rows="3"
-                    readonly
-                  ></textarea>
-                </div>
-
-                <div class="field">
-                  <label>المنطقة / الدولة (كل واحد بسطر)</label>
-                  <textarea
-                    :value="selectedVehicleRegionText"
-                    class="textarea"
-                    rows="3"
-                    readonly
-                  ></textarea>
-                </div>
-
-                <div class="field">
-                  <label>اسم السائق (كل واحد بسطر)</label>
-                  <textarea
-                    :value="selectedDriverNameText"
-                    class="textarea"
-                    rows="3"
-                    readonly
-                  ></textarea>
-                </div>
-              </div>
-            </div>
-
-            <!-- باقي الأقسام كما هي -->
-            <div class="section">
-              <div class="section-title">خط السير والاستلام/التسليم</div>
-
-              <div class="grid">
-                <div class="field">
-                  <label>مكان وتاريخ استلام البضاعة</label>
-                  <input
-                    v-model="form.TAKING_PLACE_DATE"
-                    class="input"
-                    readonly
-                  />
-                </div>
-
-                <div class="field">
-                  <label>مكان وتاريخ تسليم البضاعة</label>
-                  <input
-                    v-model="form.DELIVERY_PLACE_DATE"
-                    class="input"
-                    readonly
-                  />
-                </div>
-
-                <div class="field full">
-                  <label>خط السير (Route)</label>
-                  <textarea
-                    v-model="form.ROUTE"
-                    class="textarea"
-                    rows="2"
-                    placeholder="عمّان → الحدود → بغداد"
-                  ></textarea>
-                </div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">تفاصيل البضاعة</div>
-
-              <div class="grid">
-                <div class="field">
-                  <label>طبيعة البضاعة</label>
-                  <input v-model="form.GOODS_NATURE" class="input" />
-                </div>
-                <div class="field">
-                  <label>قيمة البضاعة</label>
-                  <input v-model="form.TARIFF_CODE" class="input" />
-                </div>
-                <div class="field">
-                  <label>Gross Weight</label>
-                  <input v-model="form.GROSS_WEIGHT" class="input" />
-                </div>
-
-                <div class="field">
-                  <label>عدد الطرود</label>
-                  <input v-model="form.PACKAGES_COUNT" class="input" />
-                </div>
-                <div class="field">
-                  <label>نوع التغليف</label>
-                  <select v-model="form.PACKING_METHOD" class="input">
-                    <option value="">— اختر نوع التغليف —</option>
-                    <option value="طرد">طرد</option>
-                    <option value="وحدة">وحدة</option>
-                    <option value="طبلية">طبلية</option>
-                    <option value="كرتونة">كرتونة</option>
-                  </select>
-                </div>
-
-                <div class="field full">
-                  <label>المستندات المرفقة</label>
-                  <input
-                    v-model="form.ANNEXED_DOCS"
-                    class="input"
-                    placeholder="Invoice, Packing List..."
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">تعليمات وأجور</div>
-
-              <div class="grid">
-                <div class="field">
-                  <label>بدل عطل (أيام)</label>
-                  <input
-                    v-model.number="form.RESERVATION_DAYS"
-                    type="number"
-                    min="0"
-                    step="1"
-                    class="input"
-                  />
-                </div>
-
-                <div class="field">
-                  <label>أجور الشحن</label>
-                  <input
-                    v-model.number="form.FREIGHT_CHARGE"
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    class="input"
-                  />
-                </div>
-
-                <div class="field">
-                  <label>تدفع في (عربي)</label>
-                  <input v-model="form.FREIGHT_PAY_PLACE_AR" class="input" />
-                </div>
-
-                <div class="field">
-                  <label>Paid at (English)</label>
-                  <input v-model="form.FREIGHT_PAY_PLACE_EN" class="input" />
-                </div>
-
-                <div class="field full">
-                  <label>تعليمات المرسل</label>
-                  <textarea
-                    v-model="form.CONSIGNER_INSTRUCTION"
-                    class="textarea"
-                    rows="2"
-                  ></textarea>
-                </div>
-
-                <div class="field full">
-                  <label>اتفاقيات خاصة</label>
-                  <textarea
-                    v-model="form.SPECIAL_TERMS"
-                    class="textarea"
-                    rows="2"
-                  ></textarea>
-                </div>
-
-                <div class="field full">
-                  <label>الدفع عند التسليم</label>
-                  <textarea
-                    v-model="form.CASH_ON_DELIVERY"
-                    class="textarea"
-                    rows="2"
-                  ></textarea>
-                </div>
-              </div>
-            </div>
-
-            <PreviewModal
-              v-if="openPreview"
-              ref="modalRef"
-              title="معاينة البوليصة"
-              :html="previewHtml"
-              @close="openPreview = false"
-              @print="printPreview"
-            />
+        <!-- 1) بيانات البوليصة -->
+        <section class="form-card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <h3>بيانات البوليصة</h3>
           </div>
-        </div>
+          <div class="row three-col">
+            <div class="field">
+              <label>رقم السند</label>
+              <input
+                v-model="form.SERIAL_NO"
+                class="input input--readonly"
+                readonly
+              />
+            </div>
+            <div class="field">
+              <label>التاريخ</label>
+              <input v-model="form.DATE" type="date" class="input" />
+            </div>
+            <div class="field">
+              <label>مكان الإصدار</label>
+              <input v-model="form.ISSUING_PLACE" class="input" />
+            </div>
+          </div>
+        </section>
+
+        <!-- 2) أطراف الشحنة -->
+        <section class="form-card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <h3>أطراف الشحنة</h3>
+          </div>
+          <div class="row two-col">
+            <!-- المرسل -->
+            <div class="party-card">
+              <div class="party-title">المرسل</div>
+
+              <div class="chips" v-if="selectedConsignor">
+                <span class="chip">
+                  {{ getPartyName(selectedConsignor) }}
+                  <button type="button" class="chip-x" @click="clearConsignor">
+                    ×
+                  </button>
+                </span>
+              </div>
+
+              <input
+                v-model="consignorQuery"
+                class="input"
+                placeholder="ابحث عن المرسل..."
+                @focus="showConsignorList = true"
+                @keydown.esc="showConsignorList = false"
+              />
+              <div class="dropdown" v-if="showConsignorList">
+                <div class="dropdown-item muted" v-if="loadingConsignors">
+                  جاري تحميل المرسلين...
+                </div>
+                <button
+                  v-for="c in filteredConsignors"
+                  :key="c._id || c.id"
+                  type="button"
+                  class="dropdown-item"
+                  @click="selectConsignor(c)"
+                >
+                  <div class="dd-row">
+                    <span class="dd-main">{{ getPartyName(c) }}</span>
+                    <span class="dd-sub" v-if="c?.code || c?.CODE">{{
+                      c?.code || c?.CODE
+                    }}</span>
+                  </div>
+                </button>
+                <div
+                  class="dropdown-item muted"
+                  v-if="!loadingConsignors && filteredConsignors.length === 0"
+                >
+                  لا يوجد نتائج
+                </div>
+              </div>
+
+              <div class="info-rows">
+                <div><b>العنوان:</b> {{ form.CONSIGNOR_ADDRESS || "—" }}</div>
+                <div><b>الهاتف:</b> {{ form.CONSIGNOR_PHONE || "—" }}</div>
+              </div>
+            </div>
+
+            <!-- المستلم -->
+            <div class="party-card">
+              <div class="party-title">المستلم</div>
+
+              <div class="chips" v-if="selectedConsignee">
+                <span class="chip">
+                  {{ getPartyName(selectedConsignee) }}
+                  <button type="button" class="chip-x" @click="clearConsignee">
+                    ×
+                  </button>
+                </span>
+              </div>
+
+              <input
+                v-model="consigneeQuery"
+                class="input"
+                placeholder="ابحث عن المستلم..."
+                @focus="showConsigneeList = true"
+                @keydown.esc="showConsigneeList = false"
+              />
+              <div class="dropdown" v-if="showConsigneeList">
+                <div class="dropdown-item muted" v-if="loadingConsignees">
+                  جاري تحميل المستلمين...
+                </div>
+                <button
+                  v-for="c in filteredConsignees"
+                  :key="c._id || c.id"
+                  type="button"
+                  class="dropdown-item"
+                  @click="selectConsignee(c)"
+                >
+                  <div class="dd-row">
+                    <span class="dd-main">{{ getPartyName(c) }}</span>
+                    <span class="dd-sub" v-if="c?.code || c?.CODE">{{
+                      c?.code || c?.CODE
+                    }}</span>
+                  </div>
+                </button>
+                <div
+                  class="dropdown-item muted"
+                  v-if="!loadingConsignees && filteredConsignees.length === 0"
+                >
+                  لا يوجد نتائج
+                </div>
+              </div>
+
+              <div class="info-rows">
+                <div><b>العنوان:</b> {{ form.CONSIGNEE_ADDRESS || "—" }}</div>
+                <div><b>الهاتف:</b> {{ form.CONSIGNEE_PHONE || "—" }}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3) السائق والمركبة -->
+        <section class="form-card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <h3>السائق والمركبة</h3>
+          </div>
+
+          <!-- Search -->
+          <div class="field" style="margin-bottom: 12px">
+            <label>ابحث برقم السيارة أو اسم السائق</label>
+            <div class="chips" v-if="selectedDrivers.length">
+              <span class="chip" v-for="d in selectedDrivers" :key="d._id">
+                {{ getVehicleNo(d) }} - {{ getDriverName(d) }}
+                <button
+                  type="button"
+                  class="chip-x"
+                  @click="removeDriver(d._id)"
+                >
+                  ×
+                </button>
+              </span>
+              <button
+                v-if="selectedDrivers.length"
+                type="button"
+                class="btn btn--small btn--secondary"
+                @click="clearDrivers"
+              >
+                مسح الكل
+              </button>
+            </div>
+            <input
+              v-model="driverQuery"
+              class="input"
+              placeholder="اكتب رقم السيارة / اسم السائق..."
+              @focus="showDriverList = true"
+              @keydown.esc="showDriverList = false"
+            />
+            <div class="dropdown" v-if="showDriverList">
+              <div class="dropdown-item muted" v-if="loadingDrivers">
+                جاري تحميل السواقين...
+              </div>
+              <button
+                v-for="d in filteredDrivers"
+                :key="d._id || d.id"
+                type="button"
+                class="dropdown-item"
+                @click="addDriver(d)"
+              >
+                <div class="dd-row">
+                  <span class="dd-main">{{ getVehicleNo(d) }}</span>
+                  <span class="dd-sub">{{ getDriverName(d) }}</span>
+                </div>
+              </button>
+              <div
+                class="dropdown-item muted"
+                v-if="!loadingDrivers && filteredDrivers.length === 0"
+              >
+                لا يوجد نتائج
+              </div>
+            </div>
+          </div>
+
+          <div class="row three-col">
+            <div class="field">
+              <label>نوع وسيلة النقل</label>
+              <input
+                v-model="form.TYPE_TRANSPORT"
+                class="input"
+                placeholder="Truck / Trailer..."
+              />
+            </div>
+            <div class="field">
+              <label>رقم المركبة</label>
+              <textarea
+                :value="selectedVehicleNoText"
+                class="textarea textarea--compact"
+                rows="2"
+                readonly
+              ></textarea>
+            </div>
+            <div class="field">
+              <label>المنطقة / الدولة</label>
+              <textarea
+                :value="selectedVehicleRegionText"
+                class="textarea textarea--compact"
+                rows="2"
+                readonly
+              ></textarea>
+            </div>
+          </div>
+          <div class="field" style="margin-top: 10px">
+            <label>اسم السائق</label>
+            <textarea
+              :value="selectedDriverNameText"
+              class="textarea textarea--compact"
+              rows="2"
+              readonly
+            ></textarea>
+          </div>
+        </section>
+
+        <!-- 4) خط السير والاستلام والتسليم -->
+        <section class="form-card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <h3>خط السير والاستلام والتسليم</h3>
+          </div>
+          <div class="row two-col">
+            <div class="field">
+              <label>مكان وتاريخ استلام البضاعة</label>
+              <div class="row two-col" style="gap: 8px">
+                <div>
+                  <input
+                    v-model="takingPlace"
+                    list="location-options"
+                    class="input"
+                    :class="{ 'is-invalid': errors.takingPlace }"
+                    placeholder="مكان الاستلام"
+                  />
+                  <div v-if="errors.takingPlace" class="error-msg">
+                    {{ errors.takingPlace }}
+                  </div>
+                </div>
+                <div>
+                  <input
+                    v-model="takingDate"
+                    type="date"
+                    class="input"
+                    :class="{ 'is-invalid': errors.takingDate }"
+                  />
+                  <div v-if="errors.takingDate" class="error-msg">
+                    {{ errors.takingDate }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label>مكان وتاريخ تسليم البضاعة</label>
+              <div class="row two-col" style="gap: 8px">
+                <div>
+                  <input
+                    v-model="deliveryPlace"
+                    list="location-options"
+                    class="input"
+                    :class="{ 'is-invalid': errors.deliveryPlace }"
+                    placeholder="مكان التسليم"
+                  />
+                  <div v-if="errors.deliveryPlace" class="error-msg">
+                    {{ errors.deliveryPlace }}
+                  </div>
+                </div>
+                <div>
+                  <input
+                    v-model="deliveryDate"
+                    type="date"
+                    class="input"
+                    :class="{ 'is-invalid': errors.deliveryDate }"
+                  />
+                  <div v-if="errors.deliveryDate" class="error-msg">
+                    {{ errors.deliveryDate }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="field" style="margin-top: 10px">
+            <label>خط السير (Route)</label>
+            <input
+              v-model="form.ROUTE"
+              list="location-options"
+              class="input"
+              :class="{
+                'is-invalid': errors.route,
+                'input--readonly': !!(selectedConsignor && selectedConsignee),
+              }"
+              :readonly="!!(selectedConsignor && selectedConsignee)"
+              placeholder="عمّان → الحدود → بغداد"
+            />
+            <div v-if="errors.route" class="error-msg">
+              {{ errors.route }}
+            </div>
+          </div>
+          <datalist id="location-options">
+            <option
+              v-for="loc in locationOptions"
+              :key="loc"
+              :value="loc"
+            ></option>
+          </datalist>
+        </section>
+
+        <!-- 5) تفاصيل البضاعة -->
+        <section class="form-card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <h3>تفاصيل البضاعة</h3>
+          </div>
+          <div class="row three-col">
+            <div class="field">
+              <label>طبيعة البضاعة</label>
+              <input v-model="form.GOODS_NATURE" class="input" />
+            </div>
+            <div class="field">
+              <label>قيمة البضاعة</label>
+              <input v-model="form.TARIFF_CODE" class="input" />
+            </div>
+            <div class="field">
+              <label>Gross Weight</label>
+              <input v-model="form.GROSS_WEIGHT" class="input" />
+            </div>
+            <div class="field">
+              <label>عدد الطرود</label>
+              <input v-model="form.PACKAGES_COUNT" class="input" />
+            </div>
+            <div class="field">
+              <label>نوع التغليف</label>
+              <select v-model="form.PACKING_METHOD" class="input">
+                <option value="">— اختر نوع التغليف —</option>
+                <option value="طرد">طرد</option>
+                <option value="وحدة">وحدة</option>
+                <option value="طبلية">طبلية</option>
+                <option value="كرتونة">كرتونة</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>المستندات المرفقة</label>
+              <input
+                v-model="form.ANNEXED_DOCS"
+                class="input"
+                placeholder="Invoice, Packing List..."
+              />
+            </div>
+          </div>
+        </section>
+
+        <!-- 6) تعليمات وأجور -->
+        <section class="form-card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <h3>تعليمات وأجور</h3>
+          </div>
+          <div class="row three-col">
+            <div class="field">
+              <label>بدل عطل (أيام)</label>
+              <input
+                v-model.number="form.RESERVATION_DAYS"
+                type="number"
+                min="0"
+                step="1"
+                class="input"
+              />
+            </div>
+            <div class="field">
+              <label>أجور الشحن</label>
+              <input
+                v-model.number="form.FREIGHT_CHARGE"
+                type="number"
+                min="0"
+                step="0.001"
+                class="input"
+              />
+            </div>
+            <div class="field">
+              <label>تدفع في (عربي)</label>
+              <input v-model="form.FREIGHT_PAY_PLACE_AR" class="input" />
+            </div>
+            <div class="field">
+              <label>Paid at (English)</label>
+              <input v-model="form.FREIGHT_PAY_PLACE_EN" class="input" />
+            </div>
+          </div>
+          <div class="row three-col" style="margin-top: 10px">
+            <div class="field">
+              <label>تعليمات المرسل</label>
+              <textarea
+                v-model="form.CONSIGNER_INSTRUCTION"
+                class="textarea textarea--compact"
+                rows="2"
+              ></textarea>
+            </div>
+            <div class="field">
+              <label>اتفاقيات خاصة</label>
+              <textarea
+                v-model="form.SPECIAL_TERMS"
+                class="textarea textarea--compact"
+                rows="2"
+              ></textarea>
+            </div>
+            <div class="field">
+              <label>الدفع عند التسليم</label>
+              <textarea
+                v-model="form.CASH_ON_DELIVERY"
+                class="textarea textarea--compact"
+                rows="2"
+              ></textarea>
+            </div>
+          </div>
+        </section>
+
+        <PreviewModal
+          v-if="openPreview"
+          ref="modalRef"
+          title="معاينة البوليصة"
+          :html="previewHtml"
+          @close="openPreview = false"
+          @print="printPreview"
+        />
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* نفس CSS تبعك */
 .overlay {
   position: fixed;
   inset: 0;
   background: rgba(17, 24, 39, 0.45);
   display: flex;
   justify-content: center;
-  align-items: flex-start;
+  align-items: center;
   padding: 18px;
   z-index: 9999;
 }
+
 .modal {
-  width: min(1200px, 100%);
-  background: #fff;
+  width: min(1220px, 96vw);
+  max-height: 94vh;
+  background: #f4f6f9;
   border-radius: 14px;
-  border: 1px solid #ddd;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+  border: 1px solid #d0d5dd;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
   overflow: hidden;
-  max-height: calc(100vh - 36px);
   display: flex;
   flex-direction: column;
+  direction: rtl;
 }
-.modal-top {
-  background: #fafafa;
-  border-bottom: 1px solid #eee;
-  padding: 12px 16px;
+
+/* Header */
+.modal-header {
+  background: #fff;
+  border-bottom: 1px solid #e2e6ec;
+  padding: 14px 22px;
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  align-items: center;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-shrink: 0;
 }
-.modal-body {
-  overflow: auto;
-}
-.btn--x {
-  background: transparent;
-  border: 1px solid #ddd;
-  color: #333;
-}
-.page {
-  background: #eef0f3;
-  padding: 16px 16px;
-  direction: rtl;
-  font-family: "Segoe UI", Tahoma, sans-serif;
-  color: #222;
-}
-.title-block h1 {
+
+.header-title h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 800;
+  color: #111827;
 }
-.title-block p {
-  margin: 6px 0 0;
-  color: #666;
-  font-size: 13px;
+
+.header-title p {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 12px;
 }
-.top-actions {
+
+.header-actions {
   display: flex;
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
 }
-.card {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 10px;
+
+/* Body */
+.modal-body {
+  flex: 1;
+  overflow: auto;
   padding: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  max-width: 1100px;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-.section {
-  padding: 12px 0;
-  border-bottom: 1px dashed #e5e5e5;
+
+/* Cards */
+.form-card {
+  background: #fff;
+  border: 1px solid #d8dee8;
+  border-radius: 10px;
+  padding: 18px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
-.section:last-child {
-  border-bottom: none;
-}
-.section-title {
-  font-size: 14px;
-  font-weight: 800;
-  margin-bottom: 10px;
-  color: #111;
+
+.card-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-bottom: 14px;
 }
-.section-title::before {
-  content: "";
+
+.card-dot {
   width: 10px;
   height: 10px;
   border-radius: 3px;
   background: #1976d2;
-  display: inline-block;
+  flex-shrink: 0;
 }
-.grid {
+
+.card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #111827;
+}
+
+/* Rows */
+.row {
   display: grid;
+  gap: 12px;
+}
+
+.row.three-col {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
 }
-.grid2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+
+.row.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.subcard {
-  border: 1px solid #e1e1e1;
+
+/* Party cards inside shipment section */
+.party-card {
+  border: 1px solid #e2e6ec;
   border-radius: 10px;
-  padding: 12px;
-  background: #fafafa;
+  padding: 14px;
+  background: #fafbfd;
 }
-.sub-title {
+
+.party-title {
   font-size: 13px;
   font-weight: 800;
+  color: #1f2937;
   margin-bottom: 10px;
-  color: #222;
 }
+
+/* Fields */
 .field label {
   display: block;
   font-size: 12px;
-  color: #555;
-  margin-bottom: 6px;
   font-weight: 700;
+  color: #374151;
+  margin-bottom: 6px;
 }
+
 .input,
 .textarea {
   width: 100%;
-  border: 1px solid #cfcfcf;
+  height: 40px;
+  border: 1px solid #d8dee8;
   border-radius: 8px;
-  padding: 10px 10px;
+  padding: 8px 12px;
   font-size: 13px;
-  outline: none;
+  font-family: inherit;
+  color: #1f2937;
   background: #fff;
   box-sizing: border-box;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
+
+.input:focus,
+.textarea:focus {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.12);
+}
+
+.input--readonly {
+  background: #f3f5f8;
+  color: #4b5563;
+  cursor: default;
+}
+
 .textarea {
+  height: auto;
+  min-height: 44px;
   resize: vertical;
-  min-height: 80px;
-  white-space: pre-wrap; /* ✅ يظهر \n */
 }
-.full {
-  grid-column: 1 / -1;
+
+.textarea--compact {
+  min-height: 44px;
 }
+
+.input.is-invalid,
+.textarea.is-invalid {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.input.is-invalid:focus,
+.textarea.is-invalid:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.error-msg {
+  color: #ef4444;
+  font-size: 11px;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+/* Buttons */
 .btn {
-  padding: 8px 14px;
+  padding: 8px 16px;
   font-size: 13px;
+  font-weight: 600;
   border-radius: 8px;
   cursor: pointer;
   border: 1px solid transparent;
+  font-family: inherit;
 }
+
 .btn--primary {
   background: #1976d2;
   color: #fff;
 }
+
+.btn--primary:hover {
+  background: #1565c0;
+}
+
 .btn--primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
 .btn--secondary {
-  background: #f5f5f5;
-  border-color: #d0d0d0;
-  color: #222;
+  background: #f3f5f8;
+  border-color: #d0d5dd;
+  color: #1f2937;
 }
 
+.btn--secondary:hover {
+  background: #e8ecf2;
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: #d0d5dd;
+  color: #4b5563;
+}
+
+.btn--ghost:hover {
+  background: #f3f5f8;
+}
+
+.btn--small {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+/* Chips */
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -1165,82 +1389,115 @@ async function saveWaybill() {
   margin-bottom: 8px;
   align-items: center;
 }
+
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #f1f5ff;
-  border: 1px solid #cfe0ff;
-  padding: 6px 10px;
+  background: #eff4ff;
+  border: 1px solid #c7d7fe;
+  padding: 5px 10px;
   border-radius: 999px;
   font-size: 12px;
+  color: #1e3a5f;
 }
+
 .chip-x {
   border: none;
   background: transparent;
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
-  color: #333;
+  color: #4b5563;
+  padding: 0;
 }
 
+/* Dropdown */
 .dropdown {
   margin-top: 6px;
-  border: 1px solid #ddd;
-  border-radius: 10px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
   background: #fff;
-  max-height: 220px;
+  max-height: 200px;
   overflow: auto;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
-  z-index: 10;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  z-index: 20;
 }
+
 .dropdown-item {
   width: 100%;
   text-align: right;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: none;
   background: transparent;
   cursor: pointer;
   font-size: 13px;
+  font-family: inherit;
 }
+
 .dropdown-item:hover {
-  background: #f5f7fb;
+  background: #f4f6f9;
 }
+
 .dropdown-item.muted {
   cursor: default;
-  color: #666;
+  color: #6b7280;
 }
+
 .dd-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
+
 .dd-main {
-  font-weight: 900;
+  font-weight: 800;
 }
+
 .dd-sub {
-  color: #666;
+  color: #6b7280;
   font-size: 12px;
   white-space: nowrap;
 }
-.mini {
+
+/* Info rows under party cards */
+.info-rows {
   margin-top: 10px;
   font-size: 12px;
-  color: #444;
+  color: #4b5563;
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
-@media (max-width: 900px) {
-  .grid {
+
+/* Responsive */
+@media (max-width: 960px) {
+  .row.three-col {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .grid2 {
+}
+
+@media (max-width: 640px) {
+  .modal {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .modal-header {
+    padding: 12px 16px;
+  }
+
+  .modal-body {
+    padding: 12px;
+  }
+
+  .row.three-col,
+  .row.two-col {
     grid-template-columns: 1fr;
   }
-}
-@media (max-width: 600px) {
-  .grid {
-    grid-template-columns: 1fr;
+
+  .form-card {
+    padding: 14px;
   }
 }
 </style>

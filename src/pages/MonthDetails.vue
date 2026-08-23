@@ -35,6 +35,22 @@ function monthStartEndISO(y, m) {
   return { from: iso(from), to: iso(to) };
 }
 
+function formatDateTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  let hh = d.getHours();
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const ampm = hh >= 12 ? "م" : "ص";
+  hh = hh % 12;
+  hh = hh ? hh : 12;
+  const hhStr = String(hh).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hhStr}:${min} ${ampm}`;
+}
+
 async function printMonthStatement() {
   const { from, to } = monthStartEndISO(year.value, month.value);
 
@@ -372,23 +388,29 @@ watch([year, month], () => {
         <!-- TABLE -->
         <div class="table-card">
           <!-- INVOICES -->
-          <table class="table" v-if="tab === 'invoices'">
+          <table class="table table--invoices" v-if="tab === 'invoices'">
             <thead>
               <tr>
-                <th>رقم</th>
-                <th>الشركة</th>
-                <th dir="ltr">القيمة</th>
-                <th>التاريخ</th>
-                <th>الإدخال</th>
+                <th class="th-number" dir="ltr">رقم</th>
+                <th class="th-company">الشركة</th>
+                <th class="th-value" dir="ltr">القيمة</th>
+                <th class="th-date" dir="ltr">التاريخ</th>
+                <th class="th-entry" dir="ltr">الإدخال</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="inv in shownInvoices" :key="inv._id">
-                <td dir="ltr">{{ inv.invoice_number }}</td>
-                <td class="clip" :title="inv.company">{{ inv.company }}</td>
-                <td dir="ltr">{{ Number(inv.value_jod || 0).toFixed(3) }}</td>
-                <td class="muted" dir="ltr">{{ inv.date }}</td>
-                <td class="muted" dir="ltr">{{ inv.created_at }}</td>
+                <td class="td-number" dir="ltr">{{ inv.invoice_number }}</td>
+                <td class="clip td-company" :title="inv.company">
+                  {{ inv.company }}
+                </td>
+                <td class="td-value" dir="ltr">
+                  {{ Number(inv.value_jod || 0).toFixed(3) }}
+                </td>
+                <td class="muted td-date" dir="ltr">{{ inv.date }}</td>
+                <td class="muted td-entry" dir="ltr">
+                  {{ formatDateTime(inv.created_at) }}
+                </td>
               </tr>
               <tr v-if="shownInvoices.length === 0">
                 <td colspan="5" class="empty">
@@ -651,7 +673,6 @@ watch([year, month], () => {
   font-size: 13px;
 }
 
-/* ✅ الترويسات ثابتة وتحتها البيانات تطلع صح */
 .table thead th {
   position: sticky;
   top: 0;
@@ -660,17 +681,49 @@ watch([year, month], () => {
 
 .table th,
 .table td {
-  border-bottom: 1px solid #eef2f7;
-  padding: 10px 10px;
-  vertical-align: top; /* ✅ يخلي اللي جوّا الخلية (عمودي) يظهر مرتب */
+  border: 1px solid #e0e0e0;
+  padding: 10px 12px;
+  vertical-align: middle;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table th {
   text-align: right;
-  color: #111827;
-  font-weight: 900;
-  background: #f9fafb;
+  color: #333;
+  font-weight: 600;
+  background: #f5f5f5;
+}
+
+.table tbody tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+/* Invoice column widths */
+.table--invoices {
+  table-layout: fixed;
+}
+
+.th-number,
+.td-number {
+  width: 180px;
+}
+.th-company,
+.td-company {
+  width: 280px;
+}
+.th-value,
+.td-value {
+  width: 140px;
+}
+.th-date,
+.td-date {
+  width: 160px;
+}
+.th-entry,
+.td-entry {
+  width: 200px;
 }
 
 .clip {
@@ -698,6 +751,7 @@ watch([year, month], () => {
   gap: 4px;
   line-height: 1.2;
   min-width: 120px;
+  overflow: visible;
 }
 
 .driver-name {

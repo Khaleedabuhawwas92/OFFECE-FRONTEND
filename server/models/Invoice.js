@@ -71,6 +71,15 @@ const InvoiceSchema = new mongoose.Schema(
     // ✅ تخزين بيانات الفوترة مع الفاتورة
     einv: { type: EInvSchema, default: () => ({}) },
 
+    einv_status: {
+      type: String,
+      enum: ["pending", "submitted", "failed"],
+      default: "pending",
+    },
+    einv_submitted_at: { type: Date, default: null },
+    einv_response: { type: mongoose.Schema.Types.Mixed, default: null },
+    einv_error: { type: String, default: null },
+
     created_at: { type: Date, default: Date.now },
   },
   { versionKey: false },
