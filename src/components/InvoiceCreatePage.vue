@@ -389,6 +389,7 @@ async function buildPreview() {
 
       return `<tr>
         <td>${escDesc}</td>
+        <td>النقل البري للبضائع</td>
         <td dir="ltr">${amtStr}</td>
         <td dir="ltr">${String(it?.currency || "")}</td>
         <td dir="ltr">${rateStr}</td>
@@ -426,7 +427,7 @@ async function buildPreview() {
     VEHICLE_NO: asVerticalList(vehicleNosArr, "ltr"),
     ITEMS_ROWS:
       itemsRowsHtml ||
-      `<tr><td colspan="5" style="text-align:center;font-weight:800">لا يوجد بنود</td></tr>`,
+      `<tr><td colspan="6" style="text-align:center;font-weight:800">لا يوجد بنود</td></tr>`,
     NOTES: esc(form.value.notes || ""),
     DINAR: parts.dinar,
     FILS: parts.fils,

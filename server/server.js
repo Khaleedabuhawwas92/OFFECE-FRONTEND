@@ -422,14 +422,29 @@ app.post("/api/invoices", async (req, res) => {
 
             const safeAmount = Number.isFinite(amount) ? amount : 0;
             const safeRate = Number.isFinite(rate_to_jod) ? rate_to_jod : 1;
-            const amount_jod = Number((safeAmount * safeRate).toFixed(3));
+            const computedAmountJod = Number((safeAmount * safeRate).toFixed(3));
+            const amount_jod = Number.isFinite(Number(it?.amount_jod))
+              ? Number(it.amount_jod)
+              : computedAmountJod;
 
             return {
+              itemId: String(it?.itemId ?? ""),
+              activityClassification: String(it?.activityClassification ?? ""),
               desc,
+              quantity: Number(it?.quantity ?? 1),
+              unitPrice: Number(
+                Number(it?.unitPrice ?? it?.price ?? it?.unit_price ?? 0).toFixed(3),
+              ),
+              discount: Number(Number(it?.discount ?? 0).toFixed(3)),
+              taxMode: String(it?.taxMode ?? "EXEMPT"),
+              taxCategory: String(it?.taxCategory ?? "O"),
+              taxPercent: Number(it?.taxPercent ?? 0),
+              taxAmount: Number(it?.taxAmount ?? 0),
+              lineNet: Number(Number(it?.lineNet ?? 0).toFixed(3)),
               amount: Number(safeAmount.toFixed(3)),
               currency,
               rate_to_jod: Number(safeRate.toFixed(4)),
-              amount_jod,
+              amount_jod: Number(amount_jod.toFixed(3)),
             };
           })
           .filter((x) => x.desc || Number(x.amount_jod || 0) !== 0)
@@ -444,6 +459,8 @@ app.post("/api/invoices", async (req, res) => {
     const finalValueJod =
       items.length > 0 ? itemsTotal : safeNumber(req.body.value_jod, 0);
     const einv = normalizeEInv(req.body.einv);
+
+    const submitToEInv = req.body.submitToEInv === true;
 
     const inv = await Invoice.create({
       invoice_number: await reserveNextInvoiceNumber(
@@ -467,13 +484,16 @@ app.post("/api/invoices", async (req, res) => {
       extra_details: req.body.extra_details || "",
 
       einv,
+      einv_status: submitToEInv ? "pending" : "draft",
     });
 
-    // Auto-submit to JoFotara after local save
-    try {
-      await submitInvoiceToEInv(inv._id);
-    } catch (e) {
-      console.error("Auto-submit unexpected error:", e);
+    // Auto-submit to JoFotara only when explicitly requested
+    if (submitToEInv) {
+      try {
+        await submitInvoiceToEInv(inv._id);
+      } catch (e) {
+        console.error("Auto-submit unexpected error:", e);
+      }
     }
 
     // Return fresh invoice with submission state
@@ -535,14 +555,29 @@ app.put("/api/invoices/:id", async (req, res) => {
 
               const safeAmount = Number.isFinite(amount) ? amount : 0;
               const safeRate = Number.isFinite(rate_to_jod) ? rate_to_jod : 1;
-              const amount_jod = Number((safeAmount * safeRate).toFixed(3));
+              const computedAmountJod = Number((safeAmount * safeRate).toFixed(3));
+              const amount_jod = Number.isFinite(Number(it?.amount_jod))
+                ? Number(it.amount_jod)
+                : computedAmountJod;
 
               return {
+                itemId: String(it?.itemId ?? ""),
+                activityClassification: String(it?.activityClassification ?? ""),
                 desc,
+                quantity: Number(it?.quantity ?? 1),
+                unitPrice: Number(
+                  Number(it?.unitPrice ?? it?.price ?? it?.unit_price ?? 0).toFixed(3),
+                ),
+                discount: Number(Number(it?.discount ?? 0).toFixed(3)),
+                taxMode: String(it?.taxMode ?? "EXEMPT"),
+                taxCategory: String(it?.taxCategory ?? "O"),
+                taxPercent: Number(it?.taxPercent ?? 0),
+                taxAmount: Number(it?.taxAmount ?? 0),
+                lineNet: Number(Number(it?.lineNet ?? 0).toFixed(3)),
                 amount: Number(safeAmount.toFixed(3)),
                 currency,
                 rate_to_jod: Number(safeRate.toFixed(4)),
-                amount_jod,
+                amount_jod: Number(amount_jod.toFixed(3)),
               };
             })
             .filter((x) => x.desc || Number(x.amount_jod || 0) !== 0)
@@ -761,10 +796,8 @@ function buildUblInvoiceXml(inv) {
 
   const supplierName = inv?.company || "—";
   const supplierTax = String(process.env.EINV_SUPPLIER_TAXNO || "").trim();
-  const supplierCity = String(process.env.EINV_SUPPLIER_CITY || "عمان").trim();
 
   const buyerName = einv.buyerName || "—";
-  const buyerCity = einv.buyerCity || "عمان";
   const currency = einv.currency || "JOD";
 
   const items = Array.isArray(inv?.items) ? inv.items : [];
@@ -777,84 +810,98 @@ function buildUblInvoiceXml(inv) {
   const noteText = String(inv?.notes || "").trim();
   const lineCount = validItems.length || 1;
 
-  const taxPercent = einv.invoiceType === "EXPORT" ? 0 : 16;
-  const typeCodeName = einv.invoiceType === "SIMPLIFIED" ? "012" : "011";
-  const taxCategoryId = taxPercent === 0 ? "O" : "S";
-  const taxAmountVal = (totalNum * taxPercent / 100).toFixed(3);
-  const taxInclusiveTotal = (totalNum + Number(taxAmountVal)).toFixed(3);
+  let typeCodeName = "011";
+  if (einv.invoiceType === "EXPORT") typeCodeName = "111";
+  else if (einv.invoiceType === "TRANSIT") typeCodeName = "311";
+  else if (einv.invoiceType === "FOREIGN") typeCodeName = "411";
+  else if (einv.invoiceType === "LOCAL") typeCodeName = "011";
 
   const linesXml = validItems
     .map((it, idx) => {
       const lineId = idx + 1;
       const desc = escapeXml(it?.desc || "");
-      const qty = Number(it?.quantity) > 0 ? Number(it?.quantity) : 1;
-      const lineTotal = Number(it?.amount_jod || 0).toFixed(3);
-      const unitPrice = (Number(it?.amount_jod || 0) / qty).toFixed(3);
+      const quantity = Number(it?.quantity || 0);
+      const unitPrice = Number(it?.unitPrice || 0);
+      const discount = Number(it?.discount || 0);
+      const gross = quantity * unitPrice;
+      const lineNet = Math.max(0, gross - discount);
 
       return `
   <cac:InvoiceLine>
     <cbc:ID>${lineId}</cbc:ID>
-    <cbc:InvoicedQuantity unitCode="EA">${qty}</cbc:InvoicedQuantity>
-    <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${lineTotal}</cbc:LineExtensionAmount>
+    <cbc:InvoicedQuantity unitCode="PCE">${quantity.toFixed(3)}</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${lineNet.toFixed(3)}</cbc:LineExtensionAmount>
     <cac:Item>
       <cbc:Name>${desc}</cbc:Name>
-      <cac:ClassifiedTaxCategory>
-        <cbc:ID>${taxCategoryId}</cbc:ID>
-        <cbc:Percent>${taxPercent}</cbc:Percent>
-        <cac:TaxScheme>
-          <cbc:ID>VAT</cbc:ID>
-        </cac:TaxScheme>
-      </cac:ClassifiedTaxCategory>
     </cac:Item>
     <cac:Price>
-      <cbc:PriceAmount currencyID="${escapeXml(currency)}">${unitPrice}</cbc:PriceAmount>
+      <cbc:PriceAmount currencyID="${escapeXml(currency)}">${unitPrice.toFixed(3)}</cbc:PriceAmount>
+      <cac:AllowanceCharge>
+        <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+        <cbc:AllowanceChargeReason>DISCOUNT</cbc:AllowanceChargeReason>
+        <cbc:Amount currencyID="${escapeXml(currency)}">${discount.toFixed(3)}</cbc:Amount>
+      </cac:AllowanceCharge>
     </cac:Price>
   </cac:InvoiceLine>`;
     })
     .join("");
 
-  const buyerRef = String(einv.incomeSourceSeq || "").trim();
+  const icvValue = String(inv?.invoice_number || inv?.serial || "1");
+  const incomeSourceSeq = String(einv.incomeSourceSeq || "").trim();
+
+  const grossTotal = validItems.reduce((sum, it) => {
+    const q = Number(it?.quantity || 0);
+    const up = Number(it?.unitPrice || 0);
+    return sum + (q * up);
+  }, 0);
+  const discountTotal = validItems.reduce((sum, it) => sum + Number(it?.discount || 0), 0);
+  const finalTotal = Math.max(0, grossTotal - discountTotal);
+
+  console.log("EINV ITEMS:", validItems.map(i => ({
+    quantity: i.quantity,
+    unitPrice: i.unitPrice,
+    discount: i.discount
+  })));
+
+  console.log("EINV TOTALS:", {
+    grossTotal,
+    discountTotal,
+    finalTotal
+  });
+
+  let buyerSchemeId = "";
+  if (einv.buyerIdType === "TIN") buyerSchemeId = "TN";
+  else if (einv.buyerIdType === "NIN") buyerSchemeId = "NIN";
+  else if (einv.buyerIdType === "OTHER") buyerSchemeId = "PN";
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
-         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
-         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
-
-  <!-- مفيد جداً لتوافق UBL -->
-  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
   <cbc:ProfileID>reporting:1.0</cbc:ProfileID>
-
   <cbc:ID>${escapeXml(invoiceId)}</cbc:ID>
   <cbc:UUID>${escapeXml(uuid)}</cbc:UUID>
   <cbc:IssueDate>${escapeXml(issueDate)}</cbc:IssueDate>
-
   <cbc:InvoiceTypeCode name="${typeCodeName}">388</cbc:InvoiceTypeCode>
-
   ${noteText ? `<cbc:Note>${escapeXml(noteText)}</cbc:Note>` : ""}
-
   <cbc:DocumentCurrencyCode>${escapeXml(currency)}</cbc:DocumentCurrencyCode>
   <cbc:TaxCurrencyCode>${escapeXml(currency)}</cbc:TaxCurrencyCode>
-
-  <cbc:LineCountNumeric>${lineCount}</cbc:LineCountNumeric>
-  ${buyerRef ? `<cbc:BuyerReference>${escapeXml(buyerRef)}</cbc:BuyerReference>` : ""}
+  <cac:AdditionalDocumentReference>
+    <cbc:ID>ICV</cbc:ID>
+    <cbc:UUID>${escapeXml(icvValue)}</cbc:UUID>
+  </cac:AdditionalDocumentReference>
 
   <cac:AccountingSupplierParty>
     <cac:Party>
-      ${supplierTax ? `<cac:PartyIdentification><cbc:ID>${escapeXml(supplierTax)}</cbc:ID></cac:PartyIdentification>` : ''}
-      <cac:PartyName><cbc:Name>${escapeXml(supplierName)}</cbc:Name></cac:PartyName>
       <cac:PostalAddress>
-        <cbc:CityName>${escapeXml(supplierCity)}</cbc:CityName>
-        <cac:Country><cbc:IdentificationCode>JO</cbc:IdentificationCode></cac:Country>
+        <cac:Country>
+          <cbc:IdentificationCode>JO</cbc:IdentificationCode>
+        </cac:Country>
       </cac:PostalAddress>
-      ${
-        supplierTax
-          ? `
       <cac:PartyTaxScheme>
         <cbc:CompanyID>${escapeXml(supplierTax)}</cbc:CompanyID>
-        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
-      </cac:PartyTaxScheme>`
-          : ""
-      }
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
       <cac:PartyLegalEntity>
         <cbc:RegistrationName>${escapeXml(supplierName)}</cbc:RegistrationName>
       </cac:PartyLegalEntity>
@@ -863,56 +910,44 @@ function buildUblInvoiceXml(inv) {
 
   <cac:AccountingCustomerParty>
     <cac:Party>
-      ${einv.buyerTaxNo ? `<cac:PartyIdentification><cbc:ID>${escapeXml(einv.buyerTaxNo)}</cbc:ID></cac:PartyIdentification>` : ''}
-      <cac:PartyName><cbc:Name>${escapeXml(buyerName)}</cbc:Name></cac:PartyName>
+      ${einv.buyerId ? `<cac:PartyIdentification><cbc:ID schemeID="${buyerSchemeId || 'PN'}">${escapeXml(einv.buyerId)}</cbc:ID></cac:PartyIdentification>` : ''}
       <cac:PostalAddress>
-        <cbc:CityName>${escapeXml(buyerCity)}</cbc:CityName>
         ${einv.buyerPostalCode ? `<cbc:PostalZone>${escapeXml(einv.buyerPostalCode)}</cbc:PostalZone>` : ""}
-        <cac:Country><cbc:IdentificationCode>JO</cbc:IdentificationCode></cac:Country>
+        ${einv.buyerCountrySubentityCode ? `<cbc:CountrySubentityCode>${escapeXml(einv.buyerCountrySubentityCode)}</cbc:CountrySubentityCode>` : ""}
+        <cac:Country>
+          <cbc:IdentificationCode>JO</cbc:IdentificationCode>
+        </cac:Country>
       </cac:PostalAddress>
-      ${
-        einv.buyerTaxNo
-          ? `
       <cac:PartyTaxScheme>
-        <cbc:CompanyID>${escapeXml(einv.buyerTaxNo)}</cbc:CompanyID>
-        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
-      </cac:PartyTaxScheme>`
-          : ""
-      }
-      <cac:PartyLegalEntity>
-        <cbc:RegistrationName>${escapeXml(buyerName)}</cbc:RegistrationName>
-      </cac:PartyLegalEntity>
-      ${
-        einv.buyerPhone
-          ? `
-      <cac:Contact><cbc:Telephone>${escapeXml(einv.buyerPhone)}</cbc:Telephone></cac:Contact>`
-          : ""
-      }
-    </cac:Party>
-  </cac:AccountingCustomerParty>
-
-  <cac:TaxTotal>
-    <cbc:TaxAmount currencyID="${escapeXml(currency)}">${taxAmountVal}</cbc:TaxAmount>
-    <cac:TaxSubtotal>
-      <cbc:TaxableAmount currencyID="${escapeXml(currency)}">${total}</cbc:TaxableAmount>
-      <cbc:TaxAmount currencyID="${escapeXml(currency)}">${taxAmountVal}</cbc:TaxAmount>
-      <cac:TaxCategory>
-        <cbc:ID>${taxCategoryId}</cbc:ID>
-        <cbc:Percent>${taxPercent}</cbc:Percent>
         <cac:TaxScheme>
           <cbc:ID>VAT</cbc:ID>
         </cac:TaxScheme>
-      </cac:TaxCategory>
-    </cac:TaxSubtotal>
-  </cac:TaxTotal>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>${escapeXml(buyerName)}</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+    ${einv.buyerPhone ? `<cac:AccountingContact><cbc:Telephone>${escapeXml(einv.buyerPhone)}</cbc:Telephone></cac:AccountingContact>` : ""}
+  </cac:AccountingCustomerParty>
 
+  ${incomeSourceSeq ? `<cac:SellerSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification>
+        <cbc:ID>${escapeXml(incomeSourceSeq)}</cbc:ID>
+      </cac:PartyIdentification>
+    </cac:Party>
+  </cac:SellerSupplierParty>` : ""}
+  <cac:AllowanceCharge>
+    <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+    <cbc:AllowanceChargeReason>discount</cbc:AllowanceChargeReason>
+    <cbc:Amount currencyID="${escapeXml(currency)}">${discountTotal.toFixed(3)}</cbc:Amount>
+  </cac:AllowanceCharge>
   <cac:LegalMonetaryTotal>
-    <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${total}</cbc:LineExtensionAmount>
-    <cbc:TaxExclusiveAmount currencyID="${escapeXml(currency)}">${total}</cbc:TaxExclusiveAmount>
-    <cbc:TaxInclusiveAmount currencyID="${escapeXml(currency)}">${taxInclusiveTotal}</cbc:TaxInclusiveAmount>
-    <cbc:PayableAmount currencyID="${escapeXml(currency)}">${taxInclusiveTotal}</cbc:PayableAmount>
+    <cbc:TaxExclusiveAmount currencyID="${escapeXml(currency)}">${grossTotal.toFixed(3)}</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="${escapeXml(currency)}">${finalTotal.toFixed(3)}</cbc:TaxInclusiveAmount>
+    <cbc:AllowanceTotalAmount currencyID="${escapeXml(currency)}">${discountTotal.toFixed(3)}</cbc:AllowanceTotalAmount>
+    <cbc:PayableAmount currencyID="${escapeXml(currency)}">${finalTotal.toFixed(3)}</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
-
   ${linesXml}
 </Invoice>`;
 

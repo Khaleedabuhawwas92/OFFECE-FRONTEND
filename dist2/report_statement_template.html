@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>كشف حساب جاري</title>
+
+    <style>
+      :root {
+        --blue: #2f42ff;
+        --rowA: #ffffff;
+        --rowB: #c6cdcf;
+        --text: #111;
+        --muted: #444;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Tahoma", Arial, sans-serif;
+        color: var(--text);
+        background: #fff;
+      }
+
+      .page {
+        width: 900px;
+        margin: 18px auto;
+        padding: 8px 10px 20px;
+      }
+
+      /* Header */
+      .top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 10px;
+      }
+
+      .brand {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .logo {
+        width: 52px;
+        height: 52px;
+        background: #111;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 36px;
+        border-radius: 2px;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 26px;
+        letter-spacing: 0.5px;
+      }
+
+      .brand .addr {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .titleBlock {
+        text-align: left;
+        margin-top: 6px;
+        min-width: 260px;
+      }
+
+      .titleBlock .title {
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .titleBlock .pageNo {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .divider {
+        height: 2px;
+        background: #111;
+        margin: 8px 0 12px;
+      }
+
+      /* Customer + Period */
+      .infoRow {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        align-items: flex-start;
+        margin: 6px 0 14px;
+      }
+
+      .customer {
+        padding-right: 8px;
+        border-right: 3px solid #111;
+        min-width: 360px;
+      }
+
+      .customer .name {
+        font-weight: 800;
+        font-size: 14px;
+        margin-bottom: 2px;
+      }
+
+      .customer .lines {
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-line;
+      }
+
+      .periodBox {
+        width: 360px;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .periodBox th {
+        background: var(--blue);
+        color: #fff;
+        padding: 6px 8px;
+        text-align: center;
+        font-weight: 800;
+      }
+
+      .periodBox td {
+        padding: 7px 8px;
+        border: 1px solid #c9d3ff;
+        text-align: center;
+        font-weight: 700;
+      }
+
+      /* Table */
+      table.statement {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      table.statement th {
+        background: var(--blue);
+        color: #fff;
+        padding: 6px 8px;
+        text-align: center;
+        font-weight: 800;
+        border-right: 2px solid #fff;
+      }
+
+      table.statement th:last-child {
+        border-right: none;
+      }
+
+      table.statement td {
+        padding: 4px 72px;
+        vertical-align: middle;
+      }
+
+      table.statement tbody tr:nth-child(odd) td {
+        background: var(--rowA);
+      }
+      table.statement tbody tr:nth-child(even) td {
+        background: var(--rowB);
+      }
+
+      .right {
+        text-align: right;
+      }
+      .center {
+        text-align: center;
+      }
+
+      .totalsRow td {
+        background: var(--rowB) !important;
+        font-weight: 800;
+        padding: 8px 8px;
+      }
+
+      .totalsLabel {
+        text-align: center;
+        letter-spacing: 0.5px;
+      }
+
+      @media print {
+        .page {
+          width: auto;
+          margin: 0;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="page">
+      <div class="top">
+        <div class="brand">
+          <div class="logo">س</div>
+          <div>
+            <h1>مؤسسة شرق العالم العربي للنقل البري</h1>
+            <div class="addr">
+              عمّان - أبو علندا - بجانب البنك الإسلامي تلفاكس: \ 4162136 /
+              4162133 ص.ب 44 رمز بريدي 11592 عمّان - الأردن
+            </div>
+          </div>
+        </div>
+
+        <div class="titleBlock">
+          <div class="title">كشف حساب جاري</div>
+          <div class="pageNo">الصفحة: {{PAGE_NO}} من {{PAGE_TOTAL}}</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="infoRow">
+        <div class="customer">
+          <div class="name">{{CUSTOMER_NAME}}</div>
+          <div class="lines">{{CUSTOMER_ADDRESS}}</div>
+        </div>
+
+        <table class="periodBox">
+          <tr>
+            <th>فترة الكشف</th>
+          </tr>
+          <tr>
+            <td>{{PERIOD_FROM}} إلى {{PERIOD_TO}}</td>
+          </tr>
+        </table>
+      </div>
+
+      <table class="statement">
+        <thead>
+          <tr>
+            <th>رقم الفاتورة</th>
+            <th>اسم الشركة</th>
+            <th>تاريخ الإدخال</th>
+            <th>قيمة الفاتورة</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {{ROWS_HTML}}
+
+          <tr class="totalsRow">
+            <td colspan="3" class="totalsLabel">
+              *** إجمالي قيمة الفواتير ***
+            </td>
+            <td class="right">{{TOTAL_VALUE}}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>

@@ -782,6 +782,7 @@ async function openInvoicePreview(inv) {
         return `
           <tr>
             <td>${desc}</td>
+            <td>النقل البري للبضائع</td>
             <td dir="ltr">${Number.isFinite(amt) ? amt.toFixed(3) : ""}</td>
             <td dir="ltr">${cur}</td>
             <td dir="ltr">${Number.isFinite(rate) ? rate.toFixed(4) : ""}</td>
@@ -806,6 +807,7 @@ async function openInvoicePreview(inv) {
             return `
               <tr>
                 <td>${desc}</td>
+                <td>النقل البري للبضائع</td>
                 <td dir="ltr"></td>
                 <td dir="ltr"></td>
                 <td dir="ltr"></td>
@@ -817,7 +819,7 @@ async function openInvoicePreview(inv) {
       } else {
         itemsRowsHtml = `
           <tr>
-            <td colspan="5" style="text-align:center; font-weight:800;">لا يوجد بنود</td>
+            <td colspan="6" style="text-align:center; font-weight:800;">لا يوجد بنود</td>
           </tr>
         `;
       }

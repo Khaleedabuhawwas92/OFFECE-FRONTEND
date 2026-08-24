@@ -18,10 +18,11 @@ const modalRef = ref(null);
 /* =========================
    E-Invoicing (JoFotara) ✅ NEW
 ========================= */
-const lastSavedInvoice = ref(null); // آخر فاتورة انحفظت (من السيرفر)
+const lastSavedInvoice = ref(null);
 const einvLoading = ref(false);
-const einvResult = ref(null); // رد جوفوتارا (أو رد السيرفر)
+const einvResult = ref(null);
 const einvError = ref("");
+const activeTab = ref("local"); // 'local' | 'einv'
 
 /* =========================
    Drivers
@@ -178,7 +179,7 @@ const RATES_TO_JOD = {
 function makeEmptyItem() {
   return {
     itemId: "",
-    activityClassification: "",
+    activityClassification: "النقل البري للبضائع",
     desc: "",
     quantity: 1,
     unitPrice: 0,
@@ -211,11 +212,13 @@ function onItemEnter(i, e) {
 }
 
 function recalcItem(it) {
-  const amt = parseFloat(it.amount);
-  const rate = parseFloat(it.rate_to_jod);
-  const a = isNaN(amt) ? 0 : amt;
-  const r = isNaN(rate) ? 1 : rate;
-  it.amount_jod = Number((a * r).toFixed(3));
+  const qty = Number(it?.quantity || 0);
+  const up = Number(it?.unitPrice || 0);
+  const disc = Number(it?.discount || 0);
+  const gross = qty * up;
+  const lineNet = Math.max(0, gross - disc);
+  it.lineNet = Number(lineNet.toFixed(3));
+  it.amount_jod = Number(lineNet.toFixed(3));
 }
 
 function onItemCurrencyChange(it) {
@@ -332,32 +335,30 @@ function fillTemplate(template, obj) {
 function validate() {
   if (!form.value.date) return "التاريخ مطلوب";
   if (!String(form.value.company || "").trim())
-    return "اختر المرسل (اسم الشركة)";
-  if (!(form.value.driver_ids || []).length)
-    return "اكتب رقم السيارة واختر السائق";
+    return "اسم العميل / الشركة مطلوب";
 
   const okItems = (form.value.items || []).some((it) => {
     const hasDesc = String(it?.desc || "").trim().length > 0;
-
-    const amtStr = String(it?.amount ?? "").trim();
-    const amtNum = Number(it?.amount);
-
-    const hasAmount =
-      amtStr.length > 0 && Number.isFinite(amtNum) && amtNum > 0;
-
-    return hasDesc && hasAmount;
+    const qty = Number(it?.quantity || 0);
+    const up = Number(it?.unitPrice || 0);
+    const net = Number(it?.amount_jod || it?.lineNet || 0);
+    return hasDesc && qty > 0 && up > 0 && net > 0;
   });
   if (!okItems) return "أدخل تفصيلة واحدة على الأقل (وصف + مبلغ)";
 
-  const e = form.value.einv || {};
-  if (!String(e.invoiceType || "").trim())
-    return "نوع الفاتورة الإلكترونية مطلوب";
-  if (!String(e.incomeSourceSeq || "").trim())
-    return "تسلسل مصدر الدخل مطلوب";
-  if (!String(e.buyerName || "").trim())
-    return "اسم المشتري مطلوب للفوترة";
-  if (!String(e.currency || "").trim())
-    return "عملة الفاتورة الإلكترونية مطلوبة";
+  if (activeTab.value !== "local") {
+    const e = form.value.einv || {};
+    if (!String(e.invoiceType || "").trim())
+      return "نوع الفاتورة الإلكترونية مطلوب";
+    if (!String(e.incomeSourceSeq || "").trim())
+      return "تسلسل مصدر الدخل مطلوب";
+    if (!String(e.buyerName || "").trim())
+      return "اسم المشتري مطلوب للفوترة";
+    if (!String(e.currency || "").trim())
+      return "عملة الفاتورة الإلكترونية مطلوبة";
+    if (!(form.value.driver_ids || []).length)
+      return "اكتب رقم السيارة واختر السائق";
+  }
 
   return "";
 }
@@ -389,6 +390,10 @@ async function buildPreview() {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+      const escClass = String(it?.activityClassification || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 
       const amt = Number(it?.amount ?? 0);
       const rate = Number(it?.rate_to_jod ?? 1);
@@ -400,6 +405,7 @@ async function buildPreview() {
 
       return `<tr>
         <td>${escDesc}</td>
+        <td>النقل البري للبضائع</td>
         <td dir="ltr">${amtStr}</td>
         <td dir="ltr">${String(it?.currency || "")}</td>
         <td dir="ltr">${rateStr}</td>
@@ -437,7 +443,7 @@ async function buildPreview() {
     VEHICLE_NO: asVerticalList(vehicleNosArr, "ltr"),
     ITEMS_ROWS:
       itemsRowsHtml ||
-      `<tr><td colspan="5" style="text-align:center;font-weight:800">لا يوجد بنود</td></tr>`,
+      `<tr><td colspan="6" style="text-align:center;font-weight:800">لا يوجد بنود</td></tr>`,
     NOTES: esc(form.value.notes || ""),
     DINAR: parts.dinar,
     FILS: parts.fils,
@@ -460,10 +466,14 @@ function printPreview() {
 
 /* =========================
    Save (returns saved invoice)
+   Supports both create and update
 ========================= */
-async function saveInvoice() {
+async function saveInvoice({ submitToEInv = false } = {}) {
   const err = validate();
-  if (err) return alert(err);
+  if (err) {
+    alert(err);
+    throw new Error(err);
+  }
 
   loading.value = true;
   einvError.value = "";
@@ -471,13 +481,14 @@ async function saveInvoice() {
     (form.value.items || []).forEach((it) => recalcItem(it));
 
     const payload = {
+      submitToEInv,
       date: form.value.date,
       company: form.value.company,
       consignor_id: form.value.consignor_id || undefined,
       driver_ids: form.value.driver_ids,
-      items: (form.value.items || []).map((it) => ({
-        itemId: it?.itemId ?? "",
-        activityClassification: it?.activityClassification ?? "",
+      items: (form.value.items || []).map((it, i) => ({
+        itemId: String(i + 1),
+        activityClassification: "النقل البري للبضائع",
         desc: it?.desc ?? "",
         quantity: Number(it?.quantity ?? 1),
         unitPrice: Number(it?.unitPrice ?? 0),
@@ -509,54 +520,91 @@ async function saveInvoice() {
       },
     };
 
-    const res = await axios.post(`${props.apiBase}/api/invoices`, payload);
+    const existingId = lastSavedInvoice.value?._id || lastSavedInvoice.value?.id;
+    let res;
+    if (existingId) {
+      res = await axios.put(`${props.apiBase}/api/invoices/${existingId}`, payload);
+    } else {
+      res = await axios.post(`${props.apiBase}/api/invoices`, payload);
+    }
 
     lastSavedInvoice.value = res?.data || null;
 
-    // ✅ بلغ الداشبورد
     emit("saved", lastSavedInvoice.value);
-
-    // (اختياري) رسالة سريعة
-    // alert(`✅ تم حفظ الفاتورة: ${lastSavedInvoice.value?.invoice_number || ""}`);
+    return lastSavedInvoice.value;
   } catch (e) {
     console.error(e);
-    alert("❌ فشل الحفظ. تأكد أن السيرفر شغال وفيه POST /api/invoices");
+    alert("❌ فشل الحفظ. تأكد أن السيرفر شغال.");
+    throw e;
   } finally {
     loading.value = false;
   }
 }
 
 /* =========================
-   Submit to JoFotara ✅ NEW
-   - لازم يكون عندك بالسيرفر:
-     POST /api/einv/submit  { invoiceId }
+   Local save only
 ========================= */
-async function submitEInvoice() {
+async function saveLocal() {
+  einvError.value = "";
+  einvResult.value = null;
+  try {
+    await saveInvoice({ submitToEInv: false });
+    einvResult.value = { ok: true, message: "تم حفظ الفاتورة في النظام", einv_status: "draft" };
+  } catch (e) {
+    // error already shown in saveInvoice
+  }
+}
+
+/* =========================
+   Save + submit to JoFotara
+========================= */
+async function saveAndSend() {
   einvError.value = "";
   einvResult.value = null;
 
-  if (!lastSavedInvoice.value?._id) {
-    await saveInvoice();
+  const existingId = lastSavedInvoice.value?._id || lastSavedInvoice.value?.id;
+
+  if (!existingId) {
+    try {
+      const saved = await saveInvoice({ submitToEInv: true });
+      if (saved?.einv_status === "submitted") {
+        einvResult.value = { ok: true, message: "تم حفظ وإرسال واعتماد الفاتورة بنجاح", einv_status: "submitted" };
+      } else if (saved?.einv_status === "failed") {
+        einvError.value = saved?.einv_error || "فشل إرسال الفاتورة للفوترة";
+      } else {
+        einvResult.value = { ok: true, message: "تم حفظ وإرسال الفاتورة", einv_status: saved?.einv_status };
+      }
+    } catch (e) {
+      // error already shown
+    }
+    return;
   }
 
-  console.log("lastSavedInvoice:", lastSavedInvoice.value);
+  try {
+    await saveInvoice({ submitToEInv: false });
+  } catch (e) {
+    return;
+  }
 
-  const id = lastSavedInvoice.value?._id;
-  if (!id) {
-    einvError.value =
-      "لا يوجد invoiceId (الفاتورة لم تُحفظ أو السيرفر لم يرجّع _id)";
+  if (lastSavedInvoice.value?.einv_status === "submitted") {
+    einvResult.value = { ok: true, message: "تم إرسال واعتماد الفاتورة بنجاح", einv_status: "submitted" };
     return;
   }
 
   einvLoading.value = true;
   try {
     const res = await axios.post(`${props.apiBase}/api/einv/submit`, {
-      invoiceId: id,
+      invoiceId: existingId,
     });
     einvResult.value = res?.data || null;
   } catch (e) {
-    console.error(e?.response?.data || e);
-    einvError.value = e?.response?.data?.error || e?.message || "فشل الإرسال";
+    const data = e?.response?.data;
+    if (e?.response?.status === 409 && data?.einv_status === "submitted") {
+      einvResult.value = { ok: true, message: "تم إرسال واعتماد الفاتورة بنجاح", einv_status: "submitted" };
+    } else {
+      console.error(data || e);
+      einvError.value = data?.error || e?.message || "فشل الإرسال";
+    }
   } finally {
     einvLoading.value = false;
   }
@@ -587,29 +635,28 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
             👁 معاينة
           </button>
 
-          <button
-            class="btn btn--primary"
-            type="button"
-            :disabled="loading"
-            @click="saveInvoice"
-          >
-            <span v-if="loading">⏳ جاري الحفظ...</span>
-            <span v-else>💾 حفظ</span>
-          </button>
-
-          <!-- ✅ NEW: إرسال للفوترة -->
-          <button
-            class="btn btn--einvoicing"
-            type="button"
-            :disabled="einvLoading || loading"
-            @click="submitEInvoice"
-          >
-            <span v-if="einvLoading">⏳ إرسال...</span>
-            <span v-else>📤 إرسال للفوترة</span>
-          </button>
-
           <button class="btn btn--ghost" type="button" @click="close">✖</button>
         </div>
+      </div>
+
+      <!-- ✅ Tabs -->
+      <div class="tabs-bar">
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'local' }"
+          type="button"
+          @click="activeTab = 'local'"
+        >
+          💾 حفظ محلي
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'einv' }"
+          type="button"
+          @click="activeTab = 'einv'"
+        >
+          📤 إرسال للفوترة
+        </button>
       </div>
 
       <!-- ✅ Status box -->
@@ -636,135 +683,149 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
           <h3>معلومات الفاتورة</h3>
 
           <div class="form-grid">
-            <div class="form-group">
-              <label>نوع الفاتورة</label>
-              <select v-model="form.einv.invoiceType">
-                <option value="TAX">فاتورة ضريبية</option>
-                <option value="SIMPLIFIED">فاتورة ضريبية مبسطة</option>
-                <option value="EXPORT">فاتورة تصدير</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label>تاريخ الفاتورة</label>
-              <input type="date" v-model="form.date" />
-            </div>
-
-            <div class="form-group">
-              <label>العملة</label>
-              <select v-model="form.einv.currency">
-                <option value="JOD">JOD</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="SAR">SAR</option>
-                <option value="AED">AED</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label>تسلسل مصدر الدخل</label>
-              <input type="text" v-model="form.einv.incomeSourceSeq" placeholder="مثال: 1379984" />
-            </div>
-
-            <div class="form-group">
-              <label>المرسل (اسم الشركة) — من الداتا بيس</label>
-
-              <div class="chips" v-if="selectedConsignor">
-                <span class="chip">
-                  {{ getConsignorName(selectedConsignor) }}
-                  <button type="button" class="chip-x" @click="clearConsignor">
-                    ×
-                  </button>
-                </span>
+            <template v-if="activeTab === 'local'">
+              <div class="form-group">
+                <label>تاريخ الفاتورة</label>
+                <input type="date" v-model="form.date" />
               </div>
 
-              <input
-                type="text"
-                v-model="consignorQuery"
-                placeholder="ابحث عن المرسل..."
-                @focus="showConsignorList = true"
-                @keydown.esc="showConsignorList = false"
-              />
+              <div class="form-group">
+                <label>اسم العميل / الشركة</label>
+                <input type="text" v-model="form.company" placeholder="اسم المشتري..." />
+              </div>
+            </template>
 
-              <div class="dropdown" v-if="showConsignorList">
-                <div class="dropdown-item muted" v-if="loadingConsignors">
-                  جاري تحميل المرسلين...
+            <template v-else>
+              <div class="form-group">
+                <label>نوع الفاتورة</label>
+                <select v-model="form.einv.invoiceType">
+                  <option value="TAX">فاتورة ضريبية</option>
+                  <option value="SIMPLIFIED">فاتورة ضريبية مبسطة</option>
+                  <option value="EXPORT">فاتورة تصدير</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>تاريخ الفاتورة</label>
+                <input type="date" v-model="form.date" />
+              </div>
+
+              <div class="form-group">
+                <label>العملة</label>
+                <select v-model="form.einv.currency">
+                  <option value="JOD">JOD</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="SAR">SAR</option>
+                  <option value="AED">AED</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>تسلسل مصدر الدخل</label>
+                <input type="text" v-model="form.einv.incomeSourceSeq" placeholder="مثال: 1379984" />
+              </div>
+
+              <div class="form-group">
+                <label>المرسل (اسم الشركة) — من الداتا بيس</label>
+
+                <div class="chips" v-if="selectedConsignor">
+                  <span class="chip">
+                    {{ getConsignorName(selectedConsignor) }}
+                    <button type="button" class="chip-x" @click="clearConsignor">
+                      ×
+                    </button>
+                  </span>
                 </div>
 
-                <button
-                  v-for="c in filteredConsignors"
-                  :key="c._id || c.id"
-                  type="button"
-                  class="dropdown-item"
-                  @click="selectConsignor(c)"
-                >
-                  <div class="dd-row">
-                    <span class="dd-main">{{ getConsignorName(c) }}</span>
-                    <span class="dd-sub" v-if="c?.code || c?.CODE">{{
-                      c?.code || c?.CODE
-                    }}</span>
+                <input
+                  type="text"
+                  v-model="consignorQuery"
+                  placeholder="ابحث عن المرسل..."
+                  @focus="showConsignorList = true"
+                  @keydown.esc="showConsignorList = false"
+                />
+
+                <div class="dropdown" v-if="showConsignorList">
+                  <div class="dropdown-item muted" v-if="loadingConsignors">
+                    جاري تحميل المرسلين...
                   </div>
-                </button>
 
-                <div
-                  class="dropdown-item muted"
-                  v-if="!loadingConsignors && filteredConsignors.length === 0"
-                >
-                  لا يوجد نتائج
-                </div>
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label>ابحث برقم السيارة (اللوحة) واختر السائق</label>
-
-              <div class="chips" v-if="selectedDrivers.length">
-                <span class="chip" v-for="d in selectedDrivers" :key="d._id">
-                  {{ getVehicleNo(d) }} - {{ getDriverName(d) }}
                   <button
+                    v-for="c in filteredConsignors"
+                    :key="c._id || c.id"
                     type="button"
-                    class="chip-x"
-                    @click="removeDriver(d._id)"
+                    class="dropdown-item"
+                    @click="selectConsignor(c)"
                   >
-                    ×
+                    <div class="dd-row">
+                      <span class="dd-main">{{ getConsignorName(c) }}</span>
+                      <span class="dd-sub" v-if="c?.code || c?.CODE">{{
+                        c?.code || c?.CODE
+                      }}</span>
+                    </div>
                   </button>
-                </span>
-              </div>
 
-              <input
-                type="text"
-                v-model="driverQuery"
-                placeholder="اكتب رقم السيارة للبحث..."
-                @focus="showDriverList = true"
-                @keydown.esc="showDriverList = false"
-              />
-
-              <div class="dropdown" v-if="showDriverList">
-                <div class="dropdown-item muted" v-if="loadingDrivers">
-                  جاري تحميل السواقين...
-                </div>
-
-                <button
-                  v-for="d in filteredDrivers"
-                  :key="d._id"
-                  type="button"
-                  class="dropdown-item"
-                  @click="addDriver(d)"
-                >
-                  <div class="dd-row">
-                    <span class="dd-main">{{ getVehicleNo(d) }}</span>
-                    <span class="dd-sub">{{ getDriverName(d) }}</span>
+                  <div
+                    class="dropdown-item muted"
+                    v-if="!loadingConsignors && filteredConsignors.length === 0"
+                  >
+                    لا يوجد نتائج
                   </div>
-                </button>
-
-                <div
-                  class="dropdown-item muted"
-                  v-if="!loadingDrivers && filteredDrivers.length === 0"
-                >
-                  لا يوجد نتائج
                 </div>
               </div>
-            </div>
+
+              <div class="form-group">
+                <label>ابحث برقم السيارة (اللوحة) واختر السائق</label>
+
+                <div class="chips" v-if="selectedDrivers.length">
+                  <span class="chip" v-for="d in selectedDrivers" :key="d._id">
+                    {{ getVehicleNo(d) }} - {{ getDriverName(d) }}
+                    <button
+                      type="button"
+                      class="chip-x"
+                      @click="removeDriver(d._id)"
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
+
+                <input
+                  type="text"
+                  v-model="driverQuery"
+                  placeholder="اكتب رقم السيارة للبحث..."
+                  @focus="showDriverList = true"
+                  @keydown.esc="showDriverList = false"
+                />
+
+                <div class="dropdown" v-if="showDriverList">
+                  <div class="dropdown-item muted" v-if="loadingDrivers">
+                    جاري تحميل السواقين...
+                  </div>
+
+                  <button
+                    v-for="d in filteredDrivers"
+                    :key="d._id"
+                    type="button"
+                    class="dropdown-item"
+                    @click="addDriver(d)"
+                  >
+                    <div class="dd-row">
+                      <span class="dd-main">{{ getVehicleNo(d) }}</span>
+                      <span class="dd-sub">{{ getDriverName(d) }}</span>
+                    </div>
+                  </button>
+
+                  <div
+                    class="dropdown-item muted"
+                    v-if="!loadingDrivers && filteredDrivers.length === 0"
+                  >
+                    لا يوجد نتائج
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -772,9 +833,67 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
           <h3>تفاصيل البنود</h3>
 
           <div class="items-wrap">
-            <div class="items-table">
+            <div v-if="activeTab === 'local'" class="items-table items-table-local">
+              <div class="items-head items-head-local">
+                <div>الوصف</div>
+                <div>الكمية</div>
+                <div>سعر الوحدة</div>
+                <div>الخصم</div>
+                <div>الإجمالي</div>
+                <div></div>
+              </div>
+
+              <div class="items-row items-row-local" v-for="(it, i) in form.items" :key="i">
+                <input
+                  :id="`item-desc-${i}`"
+                  type="text"
+                  v-model="it.desc"
+                  placeholder="مثال: أجور نقل / رسوم بوليصة..."
+                  @keydown.enter="onItemEnter(i, $event)"
+                />
+
+                <input
+                  type="number"
+                  v-model="it.quantity"
+                  placeholder="1"
+                  min="0"
+                  step="1"
+                  @input="recalcItem(it)"
+                />
+
+                <input
+                  type="number"
+                  v-model="it.unitPrice"
+                  placeholder="0"
+                  min="0"
+                  step="0.001"
+                  @input="recalcItem(it)"
+                />
+
+                <input
+                  type="number"
+                  v-model="it.discount"
+                  placeholder="0"
+                  min="0"
+                  step="0.001"
+                  @input="recalcItem(it)"
+                />
+
+                <input type="number" :value="it.amount_jod" disabled />
+
+                <button
+                  type="button"
+                  class="btn btn--danger btn--small"
+                  @click="removeItemRow(i)"
+                  title="حذف السطر"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div v-else class="items-table">
               <div class="items-head">
-                <div>رقم / معرف البند</div>
                 <div>التصنيف الوطني</div>
                 <div>الوصف</div>
                 <div>الكمية</div>
@@ -790,16 +909,10 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
 
               <div class="items-row" v-for="(it, i) in form.items" :key="i">
                 <input
-                  :id="`item-id-${i}`"
                   type="text"
-                  v-model="it.itemId"
-                  placeholder="معرف البند"
-                />
-
-                <input
-                  type="text"
-                  v-model="it.activityClassification"
-                  placeholder="التصنيف"
+                  :value="it.activityClassification || 'النقل البري للبضائع'"
+                  readonly
+                  tabindex="-1"
                 />
 
                 <input
@@ -816,6 +929,7 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                   placeholder="1"
                   min="0"
                   step="1"
+                  @input="recalcItem(it)"
                 />
 
                 <input
@@ -824,6 +938,7 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                   placeholder="0"
                   min="0"
                   step="0.001"
+                  @input="recalcItem(it)"
                 />
 
                 <input
@@ -832,6 +947,7 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                   placeholder="0"
                   min="0"
                   step="0.001"
+                  @input="recalcItem(it)"
                 />
 
                 <select v-model="it.taxMode">
@@ -884,7 +1000,7 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
           </div>
         </div>
 
-        <div class="form-card">
+        <div class="form-card" v-if="activeTab === 'einv'">
           <h3>بيانات المشتري</h3>
           <div class="form-grid">
             <div class="form-group">
@@ -950,23 +1066,25 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
         </button>
 
         <button
+          v-if="activeTab === 'local'"
           class="btn btn--primary"
           type="button"
           :disabled="loading"
-          @click="saveInvoice"
+          @click="saveLocal"
         >
           <span v-if="loading">⏳</span>
-          <span v-else>💾 حفظ</span>
+          <span v-else>💾 حفظ الفاتورة</span>
         </button>
 
         <button
+          v-else
           class="btn btn--einvoicing"
           type="button"
           :disabled="einvLoading || loading"
-          @click="submitEInvoice"
+          @click="saveAndSend"
         >
-          <span v-if="einvLoading">⏳</span>
-          <span v-else>📤 إرسال للفوترة</span>
+          <span v-if="einvLoading || loading">⏳</span>
+          <span v-else>💾📤 حفظ وإرسال للفوترة</span>
         </button>
       </div>
 
@@ -1039,6 +1157,35 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ✅ Tabs */
+.tabs-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e2e6ec;
+  background: #fbfcfe;
+}
+.tab-btn {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: all 0.15s ease;
+}
+.tab-btn:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+.tab-btn.active {
+  color: #0f766e;
+  border-bottom-color: #0f766e;
+  background: #fff;
 }
 
 .status-bar {
@@ -1273,7 +1420,7 @@ select:focus {
 .items-head,
 .items-row {
   display: grid;
-  grid-template-columns: 110px 110px 1fr 80px 100px 80px 110px 90px 90px 90px 100px 44px;
+  grid-template-columns: 110px 2fr 80px 100px 80px 110px 90px 90px 90px 100px 44px;
   gap: 8px;
   align-items: center;
 }
@@ -1309,7 +1456,7 @@ select:focus {
 @media (max-width: 700px) {
   .items-head,
   .items-row {
-    grid-template-columns: 100px 100px 1fr 70px 90px 70px 100px 80px 80px 80px 90px 44px;
+    grid-template-columns: 100px 2fr 70px 90px 70px 100px 80px 80px 80px 90px 44px;
   }
 }
 @media (max-width: 560px) {
@@ -1322,5 +1469,22 @@ select:focus {
   .items-row {
     grid-template-columns: 1fr;
   }
+  .items-head-local {
+    display: none;
+  }
+  .items-row-local {
+    grid-template-columns: 1fr;
+  }
+}
+
+.items-table-local {
+  min-width: 600px;
+}
+.items-head-local,
+.items-row-local {
+  display: grid;
+  grid-template-columns: 2fr 80px 100px 80px 100px 44px;
+  gap: 8px;
+  align-items: center;
 }
 </style>

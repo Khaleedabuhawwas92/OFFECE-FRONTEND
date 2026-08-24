@@ -2,7 +2,17 @@ const mongoose = require("mongoose");
 
 const InvoiceItemSchema = new mongoose.Schema(
   {
+    itemId: { type: String, default: "" },
+    activityClassification: { type: String, default: "" },
     desc: { type: String, default: "" },
+    quantity: { type: Number, default: 1 },
+    unitPrice: { type: Number, default: 0 },
+    discount: { type: Number, default: 0 },
+    taxMode: { type: String, default: "EXEMPT" },
+    taxCategory: { type: String, default: "O" },
+    taxPercent: { type: Number, default: 0 },
+    taxAmount: { type: Number, default: 0 },
+    lineNet: { type: Number, default: 0 },
     amount: { type: Number, default: 0 },
     currency: { type: String, default: "JOD" },
     rate_to_jod: { type: Number, default: 1 },
@@ -73,7 +83,7 @@ const InvoiceSchema = new mongoose.Schema(
 
     einv_status: {
       type: String,
-      enum: ["pending", "submitted", "failed"],
+      enum: ["draft", "pending", "submitted", "failed"],
       default: "pending",
     },
     einv_submitted_at: { type: Date, default: null },

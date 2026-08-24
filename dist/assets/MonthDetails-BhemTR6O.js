@@ -1,4 +1,4 @@
-import{_ as ct,r as g,c as u,u as ut,o as mt,w as vt,a as r,b as n,t as a,d as R,e as C,v as I,n as U,f as W,F as T,g as $,h as q,i as pt,j as d}from"./index-3_VouVtM.js";async function ht({customerName:M="",customerAddress:S="",periodFrom:D="",periodTo:f="",rows:_=[]}){const p=c=>Number(c||0).toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:3}),m=c=>String(c??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"),A=(_||[]).map(c=>`
+import{_ as ct,r as g,c as u,u as ut,o as mt,w as vt,a as r,b as n,t as a,d as R,e as C,v as I,n as U,f as W,F as T,g as $,h as q,i as pt,j as d}from"./index-vbigDf1N.js";async function ht({customerName:M="",customerAddress:S="",periodFrom:D="",periodTo:f="",rows:_=[]}){const p=c=>Number(c||0).toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:3}),m=c=>String(c??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"),A=(_||[]).map(c=>`
         <tr>
           <td class="center" dir="ltr">${m(c.invoice_number)}</td>
           <td>${m(c.company)}</td>
