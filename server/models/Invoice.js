@@ -90,6 +90,11 @@ const InvoiceSchema = new mongoose.Schema(
     einv_response: { type: mongoose.Schema.Types.Mixed, default: null },
     einv_error: { type: String, default: null },
 
+    // ✅ بيانات الفاتورة الرسمية المرجعة من JoFotara
+    einv_signed_invoice: { type: String, default: null },
+    einv_qr: { type: String, default: null },
+    einv_num: { type: String, default: null },
+
     created_at: { type: Date, default: Date.now },
   },
   { versionKey: false },

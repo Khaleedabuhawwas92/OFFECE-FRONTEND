@@ -1338,33 +1338,18 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="showInvoicePreview" class="preview-wrapper">
-          <div class="preview-header">
-            <div>
-              معاينة الفاتورة
-              <span v-if="selectedInvoice"
-                >({{ selectedInvoice.invoice_number }})</span
-              >
-            </div>
-            <div class="preview-actions">
-              <button class="btn btn--secondary" @click="printInvoicePreview">
-                🖨 طباعة
-              </button>
-              <button
-                class="btn btn--secondary"
-                @click="showInvoicePreview = false"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-
-          <iframe
-            class="preview-frame"
-            :srcdoc="invoicePreviewHtml"
-            ref="invoiceFrameRef"
-          ></iframe>
-        </div>
+        <PreviewModal
+          v-if="showInvoicePreview"
+          :title="
+            selectedInvoice
+              ? `معاينة الفاتورة (${selectedInvoice.invoice_number || ''})`
+              : 'معاينة الفاتورة'
+          "
+          :html="invoicePreviewHtml"
+          :file-name="(selectedInvoice?.invoice_number || 'invoice') + '.pdf'"
+          :invoice="selectedInvoice"
+          @close="showInvoicePreview = false"
+        />
       </section>
 
       <!-- =================== WAYBILLS =================== -->

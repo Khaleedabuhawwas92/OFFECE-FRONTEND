@@ -1060,6 +1060,23 @@ async function submitInvoiceToEInv(invoiceId, res = null) {
     inv.einv_submitted_at = new Date();
     inv.einv_response = resp.data;
     inv.einv_error = null;
+
+    // ✅ حفظ الفاتورة الرسمية المرجعة من JoFotara (بدون تغيير منطق الإرسال)
+    let einvData = resp.data;
+    if (typeof einvData === "string") {
+      try {
+        einvData = JSON.parse(einvData);
+      } catch {
+        einvData = null;
+      }
+    }
+    if (einvData && typeof einvData === "object") {
+      if (einvData.EINV_SINGED_INVOICE)
+        inv.einv_signed_invoice = String(einvData.EINV_SINGED_INVOICE);
+      if (einvData.EINV_QR) inv.einv_qr = String(einvData.EINV_QR);
+      if (einvData.EINV_NUM) inv.einv_num = String(einvData.EINV_NUM);
+    }
+
     await inv.save();
 
     if (res)

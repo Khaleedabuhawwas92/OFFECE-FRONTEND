@@ -30,6 +30,28 @@ function downloadToBuffer(url) {
   });
 }
 
+// ✅ توليد PDF من HTML جاهز (ضمن نفس نظام save-pdf — بدون أي نظام PDF جديد)
+async function renderHtmlToPdfBuffer(html) {
+  const win = new BrowserWindow({
+    show: false,
+    width: 794,
+    height: 1123,
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  });
+  try {
+    await win.loadURL(
+      "data:text/html;charset=utf-8," + encodeURIComponent(String(html || "")),
+    );
+    return await win.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      pageSize: "A4",
+    });
+  } finally {
+    win.destroy();
+  }
+}
+
 // ✅ انتظار Vite بدلاً من المحاولة العمياء
 function waitForDevServer(devUrl, tries = 60, delayMs = 300) {
   return new Promise((resolve, reject) => {
@@ -279,7 +301,7 @@ ipcMain.handle("open-waybill-preview", async (event, payload) => {
 });
 
 // ✅ IPC: حفظ PDF
-ipcMain.handle("save-pdf", async (event, { url, defaultName }) => {
+ipcMain.handle("save-pdf", async (event, { url, html, defaultName }) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
     title: "حفظ ملف PDF",
     defaultPath: defaultName || "document.pdf",
@@ -289,7 +311,9 @@ ipcMain.handle("save-pdf", async (event, { url, defaultName }) => {
   if (canceled || !filePath) return { ok: false, canceled: true };
 
   try {
-    const pdfBuffer = await downloadToBuffer(url);
+    const pdfBuffer = html
+      ? await renderHtmlToPdfBuffer(html)
+      : await downloadToBuffer(url);
     fs.writeFileSync(filePath, pdfBuffer);
     return { ok: true, filePath };
   } catch (err) {
