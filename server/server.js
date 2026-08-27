@@ -700,14 +700,33 @@ app.get("/api/vouchers/:id", async (req, res) => {
 });
 
 app.post("/api/vouchers", async (req, res) => {
+  let doc = null;
   try {
     const body = req.body || {};
     const type = String(body.type || "").toUpperCase();
     if (!["RECEIPT", "PAYMENT"].includes(type)) {
-      return res.status(400).json({ error: "type must be RECEIPT or PAYMENT" });
+      return res.status(400).json({ error: "يجب أن يكون نوع السند قبض أو تسديد" });
     }
 
     const date = asIsoDate(body.date || new Date().toISOString().slice(0, 10));
+    if (!date) {
+      return res.status(400).json({ error: "التاريخ مطلوب" });
+    }
+
+    const party_name = String(body.party_name || "").trim();
+    if (!party_name) {
+      return res.status(400).json({ error: "اسم الشركة / الطرف مطلوب" });
+    }
+
+    const currency = String(body.currency || "").trim();
+    if (!currency) {
+      return res.status(400).json({ error: "العملة مطلوبة" });
+    }
+
+    const method = String(body.method || "").toUpperCase();
+    if (!["CASH", "BANK", "CHEQUE", "OTHER"].includes(method)) {
+      return res.status(400).json({ error: "طريقة الدفع مطلوبة" });
+    }
 
     const allocations = (
       Array.isArray(body.allocations) ? body.allocations : []
@@ -719,50 +738,126 @@ app.post("/api/vouchers", async (req, res) => {
       })
       .filter((a) => a.invoice_id && a.amount > 0);
 
-    if (!allocations.length)
-      return res.status(400).json({ error: "allocations is required" });
+    if (!allocations.length) {
+      return res.status(400).json({ error: "يجب اختيار فاتورة واحدة على الأقل" });
+    }
 
     const amount_total = Number(
-      allocations
-        .reduce((sum, a) => sum + safeNumber(a.amount, 0), 0)
-        .toFixed(3),
+      allocations.reduce((sum, a) => sum + safeNumber(a.amount, 0), 0).toFixed(3),
     );
+
+    if (amount_total <= 0) {
+      return res.status(400).json({ error: "يجب أن يكون إجمالي السند أكبر من صفر" });
+    }
+
+    // التحقق من عدم تجاوز المبلغ المتبقي لكل فاتورة
+    const invIds = allocations.map((a) => a.invoice_id);
+    const invoices = await Invoice.find({ _id: { $in: invIds } }).lean();
+    const invMap = new Map(invoices.map((i) => [toIdStr(i._id), i]));
+
+    const existingVouchers = await Voucher.find(
+      { "allocations.invoice_id": { $in: invIds } },
+      { allocations: 1 },
+    ).lean();
+
+    const paidMap = new Map();
+    for (const v of existingVouchers) {
+      for (const a of Array.isArray(v.allocations) ? v.allocations : []) {
+        const id = toIdStr(a.invoice_id);
+        if (!id) continue;
+        paidMap.set(id, (paidMap.get(id) || 0) + safeNumber(a.amount, 0));
+      }
+    }
+
+    for (const a of allocations) {
+      const inv = invMap.get(a.invoice_id);
+      if (!inv) {
+        return res.status(400).json({ error: "إحدى الفواتير المختارة غير موجودة" });
+      }
+      const total = safeNumber(inv.value_jod, 0);
+      const alreadyPaid = safeNumber(paidMap.get(a.invoice_id), 0);
+      const remaining = Math.max(0, Number((total - alreadyPaid).toFixed(3)));
+      if (a.amount > remaining + 0.001) {
+        return res.status(400).json({
+          error: `المبلغ الموزع (${a.amount}) يتجاوز الرصيد المفتوح (${remaining}) للفاتورة ${inv.invoice_number || ""}`,
+        });
+      }
+    }
 
     let serial_no = String(body.serial_no || "").trim();
-    if (!serial_no) serial_no = await reserveNextVoucherSerial();
+    let attempts = 0;
+    while (attempts < 3) {
+      attempts++;
+      if (!serial_no) {
+        serial_no = await reserveNextVoucherSerial();
+      }
+      try {
+        doc = await Voucher.create({
+          type,
+          date,
+          serial_no,
+          party_name,
+          party_phone: String(body.party_phone || "").trim(),
+          currency,
+          method,
+          ref_no: String(body.ref_no || "").trim(),
+          notes: String(body.notes || "").trim(),
+          allocations: allocations.map((a) => {
+            const inv = invMap.get(a.invoice_id);
+            return {
+              invoice_id: a.invoice_id,
+              amount: a.amount,
+              invoice_number: inv?.invoice_number || "",
+              invoice_date: inv?.date || "",
+              invoice_total: safeNumber(inv?.value_jod, 0),
+              prev_paid: safeNumber(paidMap.get(a.invoice_id), 0),
+            };
+          }),
+          amount_total,
+        });
+        break;
+      } catch (e) {
+        if (String(e?.code) === "11000" && attempts < 3) {
+          serial_no = "";
+          continue;
+        }
+        throw e;
+      }
+    }
 
-    const doc = await Voucher.create({
-      type,
-      date,
-      serial_no,
+    if (!doc) {
+      return res.status(409).json({ error: "تعذر إنشاء رقم سند فريد، يرجى المحاولة مجدداً" });
+    }
 
-      party_name: String(body.party_name || "").trim(),
-      party_phone: String(body.party_phone || "").trim(),
+    // تحديث رصيد الفواتير
+    try {
+      for (const a of allocations) {
+        const inv = invMap.get(a.invoice_id);
+        const total = safeNumber(inv.value_jod, 0);
+        const newPaid = safeNumber(paidMap.get(a.invoice_id), 0) + a.amount;
+        const newRemaining = Math.max(0, Number((total - newPaid).toFixed(3)));
+        let status = "UNPAID";
+        if (newRemaining <= 0) status = "PAID";
+        else if (newPaid > 0) status = "PARTIAL";
 
-      currency: String(body.currency || "JOD").trim() || "JOD",
-      method: String(body.method || "CASH").toUpperCase(),
-      ref_no: String(body.ref_no || "").trim(),
-      notes: String(body.notes || "").trim(),
+        await Invoice.findByIdAndUpdate(a.invoice_id, {
+          paid_total: Number(newPaid.toFixed(3)),
+          payment_status: status,
+        });
+      }
+    } catch (updateErr) {
+      // التراجع عن إنشاء السند إذا فشل تحديث الفواتير
+      await Voucher.findByIdAndDelete(doc._id);
+      throw updateErr;
+    }
 
-      allocations,
-      amount_total,
-    });
-
-    const full = await Voucher.findById(doc._id).populate(
-      "allocations.invoice_id",
-    );
+    const full = await Voucher.findById(doc._id).populate("allocations.invoice_id");
     res.status(201).json(full);
   } catch (e) {
-    if (String(e?.code) === "11000") {
-      return res.status(409).json({
-        error: "Duplicate serial_no",
-        message: "serial_no already exists",
-      });
-    }
     console.error("POST /api/vouchers error:", e);
     res
       .status(500)
-      .json({ error: "Internal Server Error", message: e.message });
+      .json({ error: "حدث خطأ أثناء حفظ السند", message: e.message });
   }
 });
 

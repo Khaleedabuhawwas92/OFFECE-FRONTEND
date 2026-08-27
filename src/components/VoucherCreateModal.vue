@@ -29,6 +29,8 @@ const form = ref({
   ref_no: "",
   notes: "",
 
+  amount_total: 0, // مبلغ السند (قيمة الشيك / الدفعة)
+
   allocations: [], // { invoice_id, amount }
 });
 
@@ -60,6 +62,8 @@ function f3(n) {
 }
 
 // ====== Computed ======
+const voucherAmountNum = computed(() => safeNumber(form.value.amount_total, 0));
+
 const totalAllocated = computed(() => {
   return f3(
     (form.value.allocations || []).reduce(
@@ -69,21 +73,32 @@ const totalAllocated = computed(() => {
   );
 });
 
+const diffAmount = computed(() =>
+  f3(voucherAmountNum.value - totalAllocated.value),
+);
+
+const matchesVoucherAmount = computed(
+  () =>
+    voucherAmountNum.value > 0 &&
+    totalAllocated.value > 0 &&
+    Math.abs(totalAllocated.value - voucherAmountNum.value) <= 0.001,
+);
+
 const canSave = computed(() => {
-  if (!esc(form.value.party_name)) return false;
-  if (!esc(form.value.date)) return false;
-  if (!esc(form.value.serial_no)) return false;
-  if (!["RECEIPT", "PAYMENT"].includes(form.value.type)) return false;
-  if (!["CASH", "BANK", "CHEQUE", "OTHER"].includes(form.value.method))
-    return false;
+  const allocs = form.value.allocations || [];
 
-  // لازم في فاتورة مختارة
-  if (!form.value.allocations?.length) return false;
-
-  // لازم في مبلغ > 0
-  if (totalAllocated.value <= 0) return false;
-
-  return true;
+  return (
+    !loading.value &&
+    ["RECEIPT", "PAYMENT"].includes(form.value.type) &&
+    !!esc(form.value.date) &&
+    !!esc(form.value.party_name) &&
+    !!esc(form.value.currency) &&
+    ["CASH", "BANK", "CHEQUE", "OTHER"].includes(form.value.method) &&
+    voucherAmountNum.value > 0 &&
+    allocs.length > 0 &&
+    totalAllocated.value > 0 &&
+    matchesVoucherAmount.value
+  );
 });
 
 // ====== API ======
@@ -99,18 +114,29 @@ async function fetchNextSerial() {
   }
 }
 
-// ✅ جلب الشركات من الفواتير (بدون تكرار)
+// ✅ جلب الشركات من الفواتير + المرسلين (بدون تكرار)
 async function fetchCompanies() {
   loadingCompanies.value = true;
   try {
-    const res = await axios.get(`${props.apiBase}/api/invoices?limit=500`);
-    const rows = Array.isArray(res.data) ? res.data : [];
+    const [invRes, consRes] = await Promise.all([
+      axios
+        .get(`${props.apiBase}/api/invoices?limit=500`)
+        .catch(() => ({ data: [] })),
+      axios
+        .get(`${props.apiBase}/api/consignors?limit=500`)
+        .catch(() => ({ data: [] })),
+    ]);
+    const invRows = Array.isArray(invRes.data) ? invRes.data : [];
+    const consRows = Array.isArray(consRes.data) ? consRes.data : [];
 
-    const names = [
-      ...new Set(rows.map((r) => esc(r?.company)).filter(Boolean)),
-    ].sort((a, b) => a.localeCompare(b, "ar"));
+    const names = new Set([
+      ...invRows.map((r) => esc(r?.company)).filter(Boolean),
+      ...consRows
+        .map((r) => esc(r?.name || r?.company || r?.CONSIGNOR_NAME))
+        .filter(Boolean),
+    ]);
 
-    allCompanies.value = names;
+    allCompanies.value = [...names].sort((a, b) => a.localeCompare(b, "ar"));
   } catch (e) {
     console.error("fetch companies error:", e);
     allCompanies.value = [];
@@ -207,7 +233,7 @@ function addInvoice(inv) {
 
   form.value.allocations = [
     ...(form.value.allocations || []),
-    { invoice_id: inv._id, amount: remainingFor(inv) }, // ✅ تعبئة تلقائية
+    { invoice_id: inv._id, amount: remainingFor(inv) },
   ];
 }
 
@@ -226,6 +252,8 @@ function updateAlloc(inv, rawVal) {
   let v = safeNumber(rawVal, 0);
   if (v < 0) v = 0;
   if (v > max) v = max;
+  // لا يتجاوز مبلغ السند أيضاً
+  if (v > voucherAmountNum.value) v = voucherAmountNum.value;
 
   alloc.amount = f3(v);
 }
@@ -243,16 +271,26 @@ function autoAllocateSelected() {
       return ta - tb;
     });
 
+  let left = voucherAmountNum.value;
   for (const inv of invs) {
     const alloc = getAlloc(inv._id);
     if (!alloc) continue;
-    alloc.amount = remainingFor(inv);
+    const maxForInv = remainingFor(inv);
+    const put = f3(Math.min(left, maxForInv));
+    alloc.amount = put;
+    left = f3(left - put);
+    if (left <= 0) break;
   }
 }
 
 // ====== Save ======
 async function saveVoucher() {
-  if (!canSave.value) return;
+  if (loading.value) return;
+  if (!canSave.value) {
+    errorMessage.value =
+      "يرجى التأكد من تعبئة جميع البيانات المطلوبة بشكل صحيح.";
+    return;
+  }
 
   loading.value = true;
   errorMessage.value = "";
@@ -271,6 +309,8 @@ async function saveVoucher() {
       ref_no: form.value.ref_no,
       notes: form.value.notes,
 
+      amount_total: f3(voucherAmountNum.value),
+
       allocations: (form.value.allocations || [])
         .map((a) => ({
           invoice_id: a.invoice_id,
@@ -281,6 +321,7 @@ async function saveVoucher() {
 
     if (!payload.allocations.length) {
       errorMessage.value = "لازم توزع مبلغ على الأقل على فاتورة واحدة.";
+      loading.value = false;
       return;
     }
 
@@ -343,22 +384,16 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="field">
-            <label>رقم السند</label>
-            <div class="row">
-              <input
-                v-model="form.serial_no"
-                class="input"
-                placeholder="VC-..."
-              />
-              <button
-                class="btn btn--secondary"
-                @click="fetchNextSerial"
-                :disabled="loadingSerial"
-                title="جلب رقم جديد"
-              >
-                🔄
-              </button>
-            </div>
+            <label>المبلغ</label>
+            <input
+              v-model.number="form.amount_total"
+              class="input"
+              type="number"
+              min="0"
+              step="0.001"
+              placeholder="قيمة الشيك / الدفعة..."
+              dir="ltr"
+            />
           </div>
         </div>
 
@@ -449,6 +484,23 @@ onBeforeUnmount(() => {
             <label>العملة</label>
             <input v-model="form.currency" class="input" placeholder="JOD" />
           </div>
+        </div>
+
+        <div class="grid">
+          <div class="field">
+            <label>الرقم التسلسلي</label>
+            <div class="row">
+              <input v-model="form.serial_no" class="input" placeholder="" />
+              <button
+                class="btn btn--secondary"
+                @click="fetchNextSerial"
+                :disabled="loadingSerial"
+                title="جلب رقم جديد"
+              >
+                🔄
+              </button>
+            </div>
+          </div>
 
           <div class="field">
             <label>رقم مرجع</label>
@@ -487,13 +539,6 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="alloc-actions">
-            <button
-              class="btn btn--secondary"
-              @click="autoAllocateSelected"
-              :disabled="!form.allocations.length"
-            >
-              ⚡ توزيع كامل المتبقي (على المختارة فقط)
-            </button>
             <button
               class="btn btn--secondary"
               @click="clearAllocations"
@@ -591,25 +636,7 @@ onBeforeUnmount(() => {
                 </td>
 
                 <td dir="ltr">
-                  <input
-                    class="money"
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    :max="
-                      f3(
-                        openInvoices.find((x) => x._id === a.invoice_id)
-                          ?.remaining_jod || 0,
-                      )
-                    "
-                    :value="a.amount"
-                    @input="
-                      updateAlloc(
-                        openInvoices.find((x) => x._id === a.invoice_id),
-                        $event.target.value,
-                      )
-                    "
-                  />
+                  <span class="remain">{{ f3(a.amount) }}</span>
                 </td>
               </tr>
             </tbody>
@@ -618,10 +645,30 @@ onBeforeUnmount(() => {
 
         <div class="total-bar">
           <div>
-            إجمالي السند:
+            مبلغ السند:
+            <span dir="ltr" class="total">{{ f3(voucherAmountNum) }}</span>
+            <span class="muted">({{ form.currency }})</span>
+          </div>
+          <div>
+            مجموع الفواتير المدرجة:
             <span dir="ltr" class="total">{{ totalAllocated }}</span>
             <span class="muted">({{ form.currency }})</span>
           </div>
+        </div>
+
+        <div
+          v-if="form.allocations.length"
+          style="margin-top: 8px; font-weight: 800; font-size: 13px"
+        >
+          <span v-if="voucherAmountNum <= 0" style="color: #374151">
+            أدخل مبلغ السند أولاً
+          </span>
+          <span v-else-if="matchesVoucherAmount" style="color: #15803d">
+            ✓ المبلغ مطابق لمجموع الفواتير
+          </span>
+          <span v-else style="color: #b91c1c">
+            الفرق: {{ diffAmount }} {{ form.currency }}
+          </span>
         </div>
       </div>
 
@@ -629,7 +676,7 @@ onBeforeUnmount(() => {
         <button class="btn btn--secondary" @click="close">إلغاء</button>
         <button
           class="btn btn--primary"
-          :disabled="loading || !canSave"
+          :disabled="!canSave"
           @click="saveVoucher"
         >
           💾 حفظ السند

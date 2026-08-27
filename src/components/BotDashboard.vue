@@ -863,62 +863,97 @@ function printInvoicePreview() {
 /* =========================
    Voucher Preview ✅
 ========================= */
-function allocationsHtml(v) {
-  const arr = Array.isArray(v?.allocations) ? v.allocations : [];
-  if (!arr.length)
-    return `<tr><td colspan="3" style="text-align:center;font-weight:800;">لا يوجد تخصيص</td></tr>`;
+function buildVoucherHtml(v) {
+  const typeLabel = voucherTypeLabel(v?.type);
+  const title = `سند ${typeLabel}`;
+  const serial = esc(v?.serial_no) || "-";
+  const date = esc(v?.date) || "-";
+  const party = esc(v?.party_name) || "-";
+  const phone = esc(v?.party_phone) || "-";
+  const method = esc(v?.method) || "-";
+  const refNo = esc(v?.ref_no) || "-";
+  const notes = esc(v?.notes) || "-";
+  const total = Number(v?.amount_total || 0).toFixed(3);
+  const currency = esc(v?.currency) || "JOD";
 
-  return arr
-    .map((a, idx) => {
-      const invId = esc(a?.invoice_id?._id ?? a?.invoice_id ?? "");
-      const invNo = esc(a?.invoice_number ?? a?.invoice_no ?? "");
-      const amt = Number(a?.amount || 0);
-      return `
+  const allocs = Array.isArray(v?.allocations) ? v.allocations : [];
+  let allocRows = "";
+  if (!allocs.length) {
+    allocRows = `<tr><td colspan="4" style="text-align:center;">لا يوجد فواتير مرتبطة</td></tr>`;
+  } else {
+    allocRows = allocs
+      .map((a) => {
+        const invNo = esc(a?.invoice_number ?? a?.invoice_no ?? "-");
+        const invId = a?.invoice_id?._id ?? a?.invoice_id;
+        const inv = invoices.value.find((x) => toIdStr(x) === toIdStr(invId));
+        const invDate = esc(inv?.date) || "-";
+        const invValue = Number(inv?.value_jod ?? 0).toFixed(3);
+        const allocAmt = Number(a?.amount || 0).toFixed(3);
+        return `
+          <tr>
+            <td>${invNo}</td>
+            <td>${invDate}</td>
+            <td dir="ltr">${invValue}</td>
+            <td dir="ltr">${allocAmt}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
+
+  return `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<title>${title} - ${serial}</title>
+<style>
+  body { font-family:"Segoe UI",Tahoma,sans-serif; margin:0; padding:24px; color:#222; }
+  .voucher { max-width:720px; margin:0 auto; border:1px solid #d0d5dd; border-radius:8px; padding:24px; }
+  h1 { text-align:center; margin:0 0 16px; font-size:22px; }
+  table.info { width:100%; border-collapse:collapse; margin-bottom:16px; }
+  table.info td { padding:8px; border-bottom:1px solid #eef1f5; }
+  table.info td:first-child { font-weight:700; color:#374151; width:140px; background:#f9fafb; }
+  table.alloc { width:100%; border-collapse:collapse; margin-top:8px; }
+  table.alloc th, table.alloc td { padding:8px; border:1px solid #d0d5dd; text-align:center; }
+  table.alloc th { background:#f3f5f8; font-weight:700; }
+  .total { text-align:center; margin-top:16px; font-size:18px; font-weight:800; }
+</style>
+</head>
+<body>
+  <div class="voucher">
+    <h1>${title}</h1>
+    <table class="info">
+      <tr><td>رقم السند</td><td>${serial}</td></tr>
+      <tr><td>التاريخ</td><td>${date}</td></tr>
+      <tr><td>الشركة / الطرف</td><td>${party}</td></tr>
+      <tr><td>قيمة السند</td><td dir="ltr">${total} ${currency}</td></tr>
+      <tr><td>طريقة الدفع</td><td>${method}</td></tr>
+      <tr><td>رقم المرجع</td><td>${refNo}</td></tr>
+      <tr><td>الهاتف</td><td>${phone}</td></tr>
+      <tr><td>الملاحظات</td><td>${notes}</td></tr>
+    </table>
+    <h2 style="font-size:16px; margin:12px 0 8px;">الفواتير المرتبطة</h2>
+    <table class="alloc">
+      <thead>
         <tr>
-          <td dir="ltr">${invNo || invId || idx + 1}</td>
-          <td dir="ltr">${amt.toFixed(3)}</td>
-          <td>JOD</td>
+          <th>رقم الفاتورة</th>
+          <th>تاريخ الفاتورة</th>
+          <th>قيمة الفاتورة</th>
+          <th>المبلغ المسدد بهذا السند</th>
         </tr>
-      `;
-    })
-    .join("");
+      </thead>
+      <tbody>${allocRows}</tbody>
+    </table>
+    <div class="total">إجمالي السند: ${total} ${currency}</div>
+  </div>
+</body>
+</html>`;
 }
 
-async function openVoucherPreview(v) {
-  try {
-    selectedVoucher.value = v;
-    showVoucherPreview.value = true;
-
-    if (!voucherTemplateCache.value) {
-      const resp = await fetch("/voucher_template.html");
-      if (!resp.ok) throw new Error("voucher_template.html not found");
-      voucherTemplateCache.value = await resp.text();
-    }
-
-    const totalNumber = Number(v.amount_total || 0);
-    const parts = splitJod(totalNumber);
-
-    const data = {
-      SERIAL_NO: esc(v.serial_no || ""),
-      TYPE_LABEL: esc(voucherTypeLabel(v.type)),
-      DATE: esc(v.date || ""),
-      PARTY_NAME: esc(v.party_name || ""),
-      PARTY_PHONE: esc(v.party_phone || ""),
-      METHOD: esc(v.method || ""),
-      REF_NO: esc(v.ref_no || ""),
-      NOTES: esc(v.notes || ""),
-      ALLOC_ROWS: allocationsHtml(v),
-      DINAR: parts.dinar,
-      FILS: parts.fils,
-      TOTAL_DINAR: parts.dinar,
-      TOTAL_FILS: parts.fils,
-    };
-
-    voucherPreviewHtml.value = fillTemplate(voucherTemplateCache.value, data);
-  } catch (e) {
-    console.error("voucher preview error:", e);
-    alert("❌ صار خطأ بمعاينة السند");
-  }
+function openVoucherPreview(v) {
+  selectedVoucher.value = v;
+  voucherPreviewHtml.value = buildVoucherHtml(v);
+  showVoucherPreview.value = true;
 }
 
 function printVoucherPreview() {
@@ -1776,33 +1811,6 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="showVoucherPreview" class="preview-wrapper">
-          <div class="preview-header">
-            <div>
-              معاينة السند
-              <span v-if="selectedVoucher"
-                >({{ selectedVoucher.serial_no }})</span
-              >
-            </div>
-            <div class="preview-actions">
-              <button class="btn btn--secondary" @click="printVoucherPreview">
-                🖨 طباعة
-              </button>
-              <button
-                class="btn btn--secondary"
-                @click="showVoucherPreview = false"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-
-          <iframe
-            class="preview-frame"
-            :srcdoc="voucherPreviewHtml"
-            ref="voucherFrameRef"
-          ></iframe>
-        </div>
       </section>
     </div>
 
@@ -1835,6 +1843,13 @@ onMounted(async () => {
       :html="previewHtml"
       @close="openPreview = false"
       @print="printPreview"
+    />
+
+    <PreviewModal
+      v-if="showVoucherPreview"
+      :title="selectedVoucher ? `معاينة السند (${selectedVoucher.serial_no})` : 'معاينة السند'"
+      :html="voucherPreviewHtml"
+      @close="showVoucherPreview = false"
     />
   </div>
 </template>
