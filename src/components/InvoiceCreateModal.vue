@@ -352,8 +352,10 @@ function validate() {
 
   if (activeTab.value !== "local") {
     const e = form.value.einv || {};
-    if (!String(e.invoiceType || "").trim())
-      return "نوع الفاتورة الإلكترونية مطلوب";
+    if (!String(e.invoiceScope || "").trim())
+      return "نطاق الفاتورة الإلكترونية مطلوب";
+    if (!String(e.paymentType || "").trim())
+      return "نوع الدفع الإلكتروني مطلوب";
     if (!String(e.incomeSourceSeq || "").trim())
       return "تسلسل مصدر الدخل مطلوب";
     if (!String(e.currency || "").trim())
