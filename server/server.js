@@ -42,9 +42,23 @@ const app = express();
    CORS + JSON
    ✅ لا تستخدم app.options("*") ولا app.options("/*") عشان Express 5
 ======================= */
+const ALLOWED_ORIGINS = [
+  "http://127.0.0.1:4000",
+  "http://localhost:4000",
+  "http://localhost:5173",
+  "https://offece-frontend-production.up.railway.app",
+  "https://arabworldeast.com",
+  "https://www.arabworldeast.com",
+];
+
 app.use(
   cors({
-    origin: "*", // شددها لاحقاً إذا بدك
+    origin: (origin, callback) => {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
