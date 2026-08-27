@@ -26,8 +26,18 @@ const EInvSchema = new mongoose.Schema(
   {
     invoiceType: {
       type: String,
-      enum: ["EXPORT", "TAX", "SIMPLIFIED"],
+      enum: ["EXPORT", "TAX", "SIMPLIFIED", "LOCAL_CASH", "LOCAL_CREDIT"],
       default: "EXPORT",
+    },
+    invoiceScope: {
+      type: String,
+      enum: ["LOCAL", "EXPORT"],
+      default: "LOCAL",
+    },
+    paymentType: {
+      type: String,
+      enum: ["CASH", "CREDIT"],
+      default: "CASH",
     },
     incomeSourceSeq: { type: String, default: "" },
 

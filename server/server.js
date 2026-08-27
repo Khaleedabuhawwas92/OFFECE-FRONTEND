@@ -24,6 +24,8 @@ const express = require("express");
 const mongoose = require("mongoose");
 const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
 const Invoice = require("./models/Invoice");
 const Waybill = require("./models/Waybill");
@@ -32,6 +34,7 @@ const Consignor = require("./models/Consignor");
 const Consignee = require("./models/Consignee");
 const Counter = require("./models/Counter");
 const Voucher = require("./models/Voucher");
+const User = require("./models/User");
 
 const app = express();
 
@@ -55,13 +58,15 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017";
 const MONGO_DBNAME = process.env.MONGO_DBNAME || "waybills_db";
 const PORT = Number(process.env.PORT || 4000);
 
-console.log("MONGO_URI:", MONGO_URI);
 console.log("MONGO_DBNAME:", MONGO_DBNAME);
 
 /* ======================= Mongo ======================= */
 mongoose
   .connect(MONGO_URI, { dbName: MONGO_DBNAME })
-  .then(() => console.log("✅ Connected to MongoDB"))
+  .then(() => {
+    console.log("✅ Connected to MongoDB");
+    return seedAdmin();
+  })
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 /* ======================= BOT ======================= */
@@ -90,7 +95,7 @@ function startBot() {
     botProcess = null;
   });
 }
-startBot();
+if (process.env.BOT_ENABLED === "true") startBot();
 
 /* ======================= Helpers ======================= */
 function toIdStr(x) {
@@ -246,6 +251,86 @@ async function peekNextInvoiceNumber(docDate = new Date()) {
   );
 }
 
+/* ======================= HEALTH ======================= */
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+/* ======================= AUTH ======================= */
+const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-me";
+
+function authMiddleware(req, res, next) {
+  // Allow login
+  if (req.path === "/auth/login") return next();
+  // Allow PDF downloads (used via window.open without headers)
+  if (/^\/waybills\/[^/]+\/regenerate-pdf$/.test(req.path)) return next();
+
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const normalizedEmail = String(email || "").toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user || !user.active) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    const token = jwt.sign({ email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+    return res.json({ token });
+  } catch (err) {
+    console.error("Login error:", err);
+    return res.status(500).json({ error: "Login failed" });
+  }
+});
+
+app.get("/api/auth/me", authMiddleware, (req, res) => {
+  res.json({ email: req.user.email });
+});
+
+// Protect all subsequent /api routes
+app.use("/api", authMiddleware);
+
+async function seedAdmin() {
+  try {
+    const initEmail = String(process.env.INITIAL_ADMIN_EMAIL || "").trim();
+    const plainPassword = String(process.env.INITIAL_ADMIN_PASSWORD || "");
+    if (!initEmail || !plainPassword) return;
+
+    const existing = await User.findOne({ email: initEmail.toLowerCase() });
+    if (existing) return;
+
+    const passwordHash = await bcrypt.hash(plainPassword, 12);
+    await User.create({
+      email: initEmail.toLowerCase(),
+      passwordHash,
+      role: "ADMIN",
+      active: true,
+    });
+  } catch (err) {
+    console.error("❌ Admin seed error:", err);
+  }
+}
+
+
+
 app.get("/api/waybills/next-serial", async (req, res) => {
   try {
     const docDate = req.query.date ? new Date(req.query.date) : new Date();
@@ -378,6 +463,8 @@ function normalizeEInv(raw) {
   const x = raw && typeof raw === "object" ? raw : {};
   return {
     invoiceType: String(x.invoiceType || "EXPORT").toUpperCase(),
+    invoiceScope: String(x.invoiceScope || "LOCAL").toUpperCase(),
+    paymentType: String(x.paymentType || "CASH").toUpperCase(),
     incomeSourceSeq: String(
       x.incomeSourceSeq || process.env.EINV_INCOME_SOURCE_SEQ || "",
     ).trim(),
@@ -889,10 +976,10 @@ function buildUblInvoiceXml(inv) {
 
   const einv = normalizeEInv(inv?.einv);
 
-  const supplierName = inv?.company || "—";
+  const supplierName = "مؤسسة شرق العالم العربي للنقل البري";
   const supplierTax = String(process.env.EINV_SUPPLIER_TAXNO || "").trim();
 
-  const buyerName = einv.buyerName || "—";
+  const buyerName = String(inv?.company || "").trim();
   const currency = einv.currency || "JOD";
 
   const items = Array.isArray(inv?.items) ? inv.items : [];
@@ -902,14 +989,21 @@ function buildUblInvoiceXml(inv) {
 
   const totalNum = Number(inv?.value_jod || 0);
   const total = totalNum.toFixed(3);
-  const noteText = String(inv?.notes || "").trim();
   const lineCount = validItems.length || 1;
 
   let typeCodeName = "011";
-  if (einv.invoiceType === "EXPORT") typeCodeName = "111";
+  const scope = String(einv.invoiceScope || "").toUpperCase();
+  const payment = String(einv.paymentType || "").toUpperCase();
+  if (scope === "LOCAL" && payment === "CASH") typeCodeName = "011";
+  else if (scope === "LOCAL" && payment === "CREDIT") typeCodeName = "021";
+  else if (scope === "EXPORT" && payment === "CASH") typeCodeName = "111";
+  else if (scope === "EXPORT" && payment === "CREDIT") typeCodeName = "121";
+  else if (einv.invoiceType === "EXPORT") typeCodeName = "111";
   else if (einv.invoiceType === "TRANSIT") typeCodeName = "311";
   else if (einv.invoiceType === "FOREIGN") typeCodeName = "411";
   else if (einv.invoiceType === "LOCAL") typeCodeName = "011";
+  else if (einv.invoiceType === "LOCAL_CASH") typeCodeName = "011";
+  else if (einv.invoiceType === "LOCAL_CREDIT") typeCodeName = "021";
 
   const linesXml = validItems
     .map((it, idx) => {
@@ -976,7 +1070,7 @@ function buildUblInvoiceXml(inv) {
   <cbc:UUID>${escapeXml(uuid)}</cbc:UUID>
   <cbc:IssueDate>${escapeXml(issueDate)}</cbc:IssueDate>
   <cbc:InvoiceTypeCode name="${typeCodeName}">388</cbc:InvoiceTypeCode>
-  ${noteText ? `<cbc:Note>${escapeXml(noteText)}</cbc:Note>` : ""}
+  ${inv.notes ? `<cbc:Note>${escapeXml(inv.notes)}</cbc:Note>` : ""}
   <cbc:DocumentCurrencyCode>${escapeXml(currency)}</cbc:DocumentCurrencyCode>
   <cbc:TaxCurrencyCode>${escapeXml(currency)}</cbc:TaxCurrencyCode>
   <cac:AdditionalDocumentReference>
@@ -1067,6 +1161,15 @@ async function submitInvoiceToEInv(invoiceId, res = null) {
       status: 409,
       einv_status: "submitted",
     };
+  }
+
+  if (!String(inv?.company || "").trim()) {
+    const err = "Invoice company (buyer) is required for JoFotara submission";
+    inv.einv_status = "failed";
+    inv.einv_error = err;
+    await inv.save();
+    if (res) return res.status(400).json({ error: err });
+    return { ok: false, error: err, status: 400 };
   }
 
   try {
