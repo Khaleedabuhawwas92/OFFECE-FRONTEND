@@ -53,7 +53,8 @@ const form = ref({
 
   // بيانات الفوترة الإلكترونية
   einv: {
-    invoiceType: "TAX",
+    invoiceScope: "LOCAL",
+    paymentType: "CASH",
     incomeSourceSeq: "1379984",
     currency: "JOD",
     buyerIdType: "TIN",
@@ -189,6 +190,8 @@ function makeEmptyItem() {
     taxPercent: 0,
     taxAmount: 0,
     lineNet: 0,
+    currency: "JOD",
+    rate_to_jod: 1,
     amount_jod: 0,
   };
 }
@@ -218,7 +221,8 @@ function recalcItem(it) {
   const gross = qty * up;
   const lineNet = Math.max(0, gross - disc);
   it.lineNet = Number(lineNet.toFixed(3));
-  it.amount_jod = Number(lineNet.toFixed(3));
+  const rate = Number(it?.rate_to_jod || 1);
+  it.amount_jod = Number((lineNet * rate).toFixed(3));
 }
 
 function onItemCurrencyChange(it) {
@@ -352,8 +356,6 @@ function validate() {
       return "نوع الفاتورة الإلكترونية مطلوب";
     if (!String(e.incomeSourceSeq || "").trim())
       return "تسلسل مصدر الدخل مطلوب";
-    if (!String(e.buyerName || "").trim())
-      return "اسم المشتري مطلوب للفوترة";
     if (!String(e.currency || "").trim())
       return "عملة الفاتورة الإلكترونية مطلوبة";
     if (!(form.value.driver_ids || []).length)
@@ -506,13 +508,14 @@ async function saveInvoice({ submitToEInv = false } = {}) {
       value_jod: Number(itemsTotal.value.toFixed(3)),
       notes: form.value.notes,
       einv: {
-        invoiceType: form.value.einv?.invoiceType ?? "TAX",
+        invoiceScope: form.value.einv?.invoiceScope ?? "LOCAL",
+        paymentType: form.value.einv?.paymentType ?? "CASH",
         incomeSourceSeq: form.value.einv?.incomeSourceSeq ?? "1379984",
         currency: form.value.einv?.currency ?? "JOD",
         buyerIdType: form.value.einv?.buyerIdType ?? "TIN",
         buyerId: form.value.einv?.buyerId ?? "",
         buyerTaxNo: form.value.einv?.buyerTaxNo ?? "",
-        buyerName: form.value.einv?.buyerName ?? "",
+        buyerName: form.value.company || "",
         buyerCityCode: form.value.einv?.buyerCityCode ?? "",
         buyerCity: form.value.einv?.buyerCity ?? "",
         buyerPhone: form.value.einv?.buyerPhone ?? "",
@@ -691,17 +694,58 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
 
               <div class="form-group">
                 <label>اسم العميل / الشركة</label>
-                <input type="text" v-model="form.company" placeholder="اسم المشتري..." />
+                <input
+                  type="text"
+                  v-model="form.company"
+                  placeholder="اسم المشتري..."
+                  @focus="showConsignorList = true; consignorQuery = ''"
+                  @input="consignorQuery = form.company"
+                  @keydown.esc="showConsignorList = false"
+                />
+                <div class="dropdown" v-if="showConsignorList">
+                  <div class="dropdown-item muted" v-if="loadingConsignors">
+                    جاري تحميل المرسلين...
+                  </div>
+
+                  <button
+                    v-for="c in filteredConsignors"
+                    :key="c._id || c.id"
+                    type="button"
+                    class="dropdown-item"
+                    @click="selectConsignor(c)"
+                  >
+                    <div class="dd-row">
+                      <span class="dd-main">{{ getConsignorName(c) }}</span>
+                      <span class="dd-sub" v-if="c?.code || c?.CODE">{{
+                        c?.code || c?.CODE
+                      }}</span>
+                    </div>
+                  </button>
+
+                  <div
+                    class="dropdown-item muted"
+                    v-if="!loadingConsignors && filteredConsignors.length === 0"
+                  >
+                    لا يوجد نتائج
+                  </div>
+                </div>
               </div>
             </template>
 
             <template v-else>
               <div class="form-group">
+                <label>نطاق الفاتورة</label>
+                <select v-model="form.einv.invoiceScope">
+                  <option value="LOCAL">محلية</option>
+                  <option value="EXPORT">تصدير</option>
+                </select>
+              </div>
+
+              <div class="form-group">
                 <label>نوع الفاتورة</label>
-                <select v-model="form.einv.invoiceType">
-                  <option value="TAX">فاتورة ضريبية</option>
-                  <option value="SIMPLIFIED">فاتورة ضريبية مبسطة</option>
-                  <option value="EXPORT">فاتورة تصدير</option>
+                <select v-model="form.einv.paymentType">
+                  <option value="CASH">نقدية</option>
+                  <option value="CREDIT">ذمم</option>
                 </select>
               </div>
 
@@ -839,7 +883,10 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                 <div>الكمية</div>
                 <div>سعر الوحدة</div>
                 <div>الخصم</div>
-                <div>الإجمالي</div>
+                <div>العملة</div>
+                <div>نسبة التحويل</div>
+                <div>الإجمالي بالعملة</div>
+                <div>الإجمالي JOD</div>
                 <div></div>
               </div>
 
@@ -879,6 +926,18 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                   @input="recalcItem(it)"
                 />
 
+                <select v-model="it.currency" @change="onItemCurrencyChange(it)">
+                  <option value="JOD">JOD</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="SAR">SAR</option>
+                  <option value="AED">AED</option>
+                </select>
+
+                <input type="number" :value="it.rate_to_jod" disabled />
+
+                <input type="number" :value="it.lineNet" disabled />
+
                 <input type="number" :value="it.amount_jod" disabled />
 
                 <button
@@ -903,7 +962,10 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                 <div>نسبة الضريبة</div>
                 <div>قيمة الضريبة</div>
                 <div>صافي البند</div>
-                <div>الإجمالي</div>
+                <div>العملة</div>
+                <div>نسبة التحويل</div>
+                <div>الإجمالي بالعملة</div>
+                <div>الإجمالي JOD</div>
                 <div></div>
               </div>
 
@@ -969,6 +1031,18 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
 
                 <input type="number" :value="it.lineNet" disabled />
 
+                <select v-model="it.currency" @change="onItemCurrencyChange(it)">
+                  <option value="JOD">JOD</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="SAR">SAR</option>
+                  <option value="AED">AED</option>
+                </select>
+
+                <input type="number" :value="it.rate_to_jod" disabled />
+
+                <input type="number" :value="it.lineNet" disabled />
+
                 <input type="number" :value="it.amount_jod" disabled />
 
                 <button
@@ -1005,7 +1079,9 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
           <div class="form-grid">
             <div class="form-group">
               <label>اسم المشتري</label>
-              <input type="text" v-model="form.einv.buyerName" placeholder="شركة..." />
+              <div style="padding:10px 10px;background:#f3f5f8;border:1px solid #d6d9e3;border-radius:10px;font-size:13px;color:#334155;">
+                {{ form.company || "—" }}
+              </div>
             </div>
 
             <div class="form-group">

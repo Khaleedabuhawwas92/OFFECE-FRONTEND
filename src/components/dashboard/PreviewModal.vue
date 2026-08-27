@@ -164,6 +164,13 @@ function downloadJofotaraInvoice() {
 ============================================================ */
 const jofotaraPdfLoading = ref(false);
 
+const INVOICE_TYPE_MAP = {
+  "011": { title: "فاتورة نقدية", type: "فاتورة نقدية محلية" },
+  "021": { title: "فاتورة ذمم", type: "فاتورة ذمم محلية" },
+  "111": { title: "فاتورة تصدير نقدية", type: "فاتورة نقدية تصدير" },
+  "121": { title: "فاتورة تصدير ذمم", type: "فاتورة ذمم تصدير" },
+};
+
 // ✅ تحليل XML الموقّع — scoped/direct-child فقط (لا قراءة من التوقيعات)
 function parseJofotaraXml(xml) {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
@@ -194,23 +201,11 @@ function parseJofotaraXml(xml) {
     directChild(parent, localName)?.textContent?.trim() || "";
 
   // ✅ نوع الفاتورة من السمة name — كود UBL (388) لا يُعرض للمستخدم
-  const TYPE_NAMES = {
-    "011": "فاتورة نقدية محلية",
-    "021": "فاتورة ذمم محلية",
-    "111": "فاتورة نقدية تصدير",
-    "121": "فاتورة ذمم تصدير",
-    "211": "فاتورة نقدية مناطق تنموية",
-    "221": "فاتورة ذمم مناطق تنموية",
-    "311": "فاتورة نقدية ترانزيت",
-    "321": "فاتورة ذمم ترانزيت",
-    "411": "فاتورة نقدية تجارة خارجية",
-    "421": "فاتورة ذمم تجارة خارجية",
-    "511": "فاتورة نقدية تنازل مناطق حرة",
-    "521": "فاتورة ذمم تنازل مناطق حرة",
-  };
   const typeEl = directChild(root, "InvoiceTypeCode");
   const typeNameAttr = typeEl?.getAttribute("name")?.trim() || "";
-  const invoiceTypeName = TYPE_NAMES[typeNameAttr] || typeNameAttr || "";
+  const mapped = INVOICE_TYPE_MAP[typeNameAttr];
+  const invoiceTypeName = mapped?.type || typeNameAttr || "";
+  const title = mapped?.title || "فاتورة إلكترونية";
 
   // ✅ البائع: Invoice > AccountingSupplierParty > Party
   const supplierParty = directChild(
@@ -252,11 +247,15 @@ function parseJofotaraXml(xml) {
   // ✅ الإجماليات: Invoice > LegalMonetaryTotal المباشر فقط
   const monetary = directChild(root, "LegalMonetaryTotal");
 
+  const note = childText(root, "Note");
+
   return {
     id: childText(root, "ID"),
     uuid: childText(root, "UUID"),
     issueDate: childText(root, "IssueDate"),
+    issueTime: childText(root, "IssueTime"),
     invoiceTypeName,
+    title,
     currency: childText(root, "DocumentCurrencyCode"),
     supplierName: childText(supplierLegal, "RegistrationName"),
     supplierTaxNo: childText(supplierTaxScheme, "CompanyID"),
@@ -269,6 +268,7 @@ function parseJofotaraXml(xml) {
       phone: childText(customerContact, "Telephone"),
     },
     lines,
+    note,
     totals: {
       taxExclusive: childText(monetary, "TaxExclusiveAmount"),
       taxInclusive: childText(monetary, "TaxInclusiveAmount"),
@@ -281,6 +281,7 @@ function parseJofotaraXml(xml) {
 // ✅ HTML عربي RTL — تصميم قريب من فاتورة الفوترة الرسمية (A4 مضغوط)
 // ⚠️ يُولّد محلياً من XML الموقّع — ليس PDF رسمياً مرجعاً من JoFotara
 function buildJofotaraHtml(d, invoice, qrDataUrl = "") {
+  console.log("JOFOTARA NOTE:", d.note || "EMPTY");
   const esc = (v) =>
     String(v ?? "")
       .replace(/&/g, "&amp;")
@@ -298,13 +299,17 @@ function buildJofotaraHtml(d, invoice, qrDataUrl = "") {
   };
   const cur = val(d.currency);
 
-  // ✅ عرض فقط — تقسيم التاريخ/الوقت من نفس القيمة المستخرجة (بدون تغيير البيانات)
-  const issueRaw = String(d.issueDate || "").trim();
-  const issueParts = issueRaw.split(/[T ]+/);
-  const issueDateOnly = issueParts[0] || "";
-  const issueTimeOnly = issueParts.length > 1 ? issueParts[1] : "";
-  const currencyType =
-    String(d.currency || "").toUpperCase() === "JOD" ? "محلية" : "أجنبية";
+  const issueDateRaw = String(d.issueDate || "").trim();
+  const issueDateOnly = issueDateRaw.split(/[T ]+/)[0] || "";
+  const issueTimeOnly = String(d.issueTime || "").trim();
+  const CURRENCY_NAMES = {
+    JOD: "دينار أردني",
+    USD: "دولار أمريكي",
+    EUR: "يورو",
+    SAR: "ريال سعودي",
+    AED: "درهم إماراتي",
+  };
+  const currencyName = CURRENCY_NAMES[String(d.currency || "").toUpperCase()] || String(d.currency || "").toUpperCase();
 
   const lineRows = (d.lines || [])
     .map((ln, i) => {
@@ -355,7 +360,7 @@ function buildJofotaraHtml(d, invoice, qrDataUrl = "") {
 <head>
 <meta charset="utf-8">
 <base href="${window.location.origin}/">
-<title>فاتورة إلكترونية</title>
+<title>${esc(d.title || "فاتورة إلكترونية")}</title>
 <style>
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -412,14 +417,14 @@ function buildJofotaraHtml(d, invoice, qrDataUrl = "") {
     <div class="info">
       <div class="info-pair-row">
         <div class="info-half"><span class="l">رقم الفاتورة الإلكترونية:</span><span class="v">${val(invoice?.einv_num)}</span></div>
-        <div class="info-half"><span class="l">نوع العملة:</span><span class="v">${esc(currencyType)}</span></div>
+        <div class="info-half"><span class="l">نوع العملة:</span><span class="v">${esc(currencyName)}</span></div>
       </div>
       <div class="info-pair-row">
         <div class="info-half"><span class="l">وقت إصدار الفاتورة:</span><span class="v">${val(issueTimeOnly)}</span></div>
         <div class="info-half"><span class="l">رمز العملة:</span><span class="v">${cur}</span></div>
       </div>
       <div class="info-pair-row">
-        <div class="info-half"><span class="l">تاريخ إصدار الفاتورة:</span><span class="v">${val(issueDateOnly || issueRaw)}</span></div>
+        <div class="info-half"><span class="l">تاريخ إصدار الفاتورة:</span><span class="v">${val(issueDateOnly || issueDateRaw)}</span></div>
         <div class="info-half"><span class="l">نوع الفاتورة:</span><span class="v">${val(d.invoiceTypeName)}</span></div>
       </div>
     </div>
@@ -469,6 +474,8 @@ function buildJofotaraHtml(d, invoice, qrDataUrl = "") {
         <div class="total-row final"><span class="tv">${fmt(d.totals.payable)}</span><span class="tl">إجمالي قيمة الفاتورة (${cur}):</span></div>
       </div>
     </div>
+
+    ${d.note ? `<div style="margin-top:6px; padding:8px 10px; border:1px solid #1976d2; border-radius:4px; background:#fff; width:100%; direction:rtl; text-align:right; white-space:pre-wrap; font-size:9px; line-height:1.5; color:#111;"><div style="font-weight:700; color:#0D3A65; margin-bottom:4px;">ملاحظات</div><div>${esc(d.note)}</div></div>` : ""}
 
     <div class="foot">Page 1 of 1</div>
   </div>
@@ -639,14 +646,6 @@ onBeforeUnmount(() => {
             @click="doDownloadPdf"
           >
             {{ downloading ? "⏳ جاري الحفظ..." : "⬇ تنزيل PDF" }}
-          </button>
-          <button
-            v-if="hasJofotaraInvoice"
-            class="btn btn--jofotara"
-            type="button"
-            @click.stop="downloadJofotaraInvoice"
-          >
-            ⬇ تنزيل فاتورة الفوترة XML
           </button>
           <button
             v-if="hasJofotaraInvoice"

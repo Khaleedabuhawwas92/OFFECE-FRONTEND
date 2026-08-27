@@ -9,7 +9,7 @@ import VoucherCreateModal from "./VoucherCreateModal.vue"; // ✅ جديد
 import PreviewModal from "./dashboard/PreviewModal.vue";
 
 // ✅ أفضل داخل Electron
-const API_BASE = "http://127.0.0.1:4000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 
 // ✅ Route (للـ refresh عند الرجوع)
 const route = useRoute();
@@ -72,6 +72,11 @@ function openCreateVoucher() {
 }
 function closeCreateVoucher() {
   showCreateVoucher.value = false;
+}
+
+function handleLogout() {
+  localStorage.removeItem("auth_token");
+  router.push("/login");
 }
 
 /* =========================
@@ -999,6 +1004,9 @@ async function openWaybillPreview(wb) {
       data = applyDriversToData(data, selected);
     }
 
+    // ✅ بنود البضاعة: متعددة أو قديمة
+    data.GOODS_ROWS = buildGoodsRows(data);
+
     previewHtml.value = fillTemplate(waybillTemplateCache.value, data);
     openPreview.value = true;
   } catch (e) {
@@ -1030,6 +1038,35 @@ function applyDriversToData(data, driversList = []) {
     VEHICLE3_REGION: d3.VEHICLE_REGION || d3.vehicle_city || "",
     DRIVER3_NAME: getDriverName(d3) || "",
   };
+}
+
+function buildGoodsRows(data) {
+  const items = data?.goodsItems;
+  if (Array.isArray(items) && items.length) {
+    return items
+      .map(
+        (it) => `
+    <tr>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center">${esc(String(it.GOODS_NATURE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.TARIFF_CODE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.GROSS_WEIGHT ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.MARKS ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.PACKAGES_COUNT ?? ""))}</td>
+      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${esc(String(it.PACKING_METHOD ?? ""))}</td>
+    </tr>`,
+      )
+      .join("");
+  }
+  // fallback: old single fields
+  return `
+    <tr>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center">${esc(String(data?.GOODS_NATURE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.TARIFF_CODE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.GROSS_WEIGHT ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.MARKS ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.PACKAGES_COUNT ?? ""))}</td>
+      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.PACKING_METHOD ?? ""))}</td>
+    </tr>`;
 }
 
 /* =========================
@@ -1122,6 +1159,10 @@ onMounted(async () => {
             >المرسل إليهم</RouterLink
           >
         </nav>
+
+        <button class="btn btn--secondary" @click="handleLogout">
+          🔒 تسجيل خروج
+        </button>
       </div>
     </header>
 
@@ -1284,6 +1325,7 @@ onMounted(async () => {
                 <col class="c-value" />
                 <col class="c-date" />
                 <col class="c-created" />
+                <col class="c-type" />
                 <col class="c-actions" />
               </colgroup>
 
@@ -1302,6 +1344,7 @@ onMounted(async () => {
                       sortArrow(col, invSort.value)
                     }}</span>
                   </th>
+                  <th>النوع</th>
                   <th>عمليات</th>
                 </tr>
               </thead>
@@ -1316,6 +1359,15 @@ onMounted(async () => {
                   <td class="cell-ellipsis">{{ inv.date }}</td>
                   <td class="cell-ellipsis">
                     {{ formatDate(inv.created_at) }}
+                  </td>
+
+                  <td class="cell-ellipsis">
+                    <span v-if="inv.einv_status === 'draft'" class="badge badge--gray">محلية</span>
+                    <span v-else class="badge" :class="{
+                      'badge--green': inv.einv_status === 'submitted',
+                      'badge--orange': inv.einv_status === 'pending',
+                      'badge--red': inv.einv_status === 'failed'
+                    }">فوترة</span>
                   </td>
 
                   <td class="actions-cell">
@@ -2442,5 +2494,32 @@ onMounted(async () => {
 }
 .c-vc-actions {
   width: 220px;
+}
+.c-type {
+  width: 90px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge--gray {
+  background: #e5e7eb;
+  color: #374151;
+}
+.badge--green {
+  background: #dcfce7;
+  color: #166534;
+}
+.badge--orange {
+  background: #ffedd5;
+  color: #9a3412;
+}
+.badge--red {
+  background: #fee2e2;
+  color: #991b1b;
 }
 </style>

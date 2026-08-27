@@ -85,6 +85,17 @@ const form = ref({
   // نوع التغليف (اختيار)
   PACKING_METHOD: "طرد", // طرد | طبلية | كرتونة
 
+  goodsItems: [
+    {
+      GOODS_NATURE: "",
+      TARIFF_CODE: "",
+      GROSS_WEIGHT: 0,
+      MARKS: "",
+      PACKAGES_COUNT: 0,
+      PACKING_METHOD: "طرد",
+    },
+  ],
+
   // تعليمات وأجور
   DEMURRAGE_LOADING: 0,
   CONSIGNER_INSTRUCTION: "",
@@ -516,6 +527,66 @@ function clearConsignee() {
 }
 
 /* =========================
+   Goods items helpers
+========================= */
+function makeEmptyGoodsItem() {
+  return {
+    GOODS_NATURE: "",
+    TARIFF_CODE: "",
+    GROSS_WEIGHT: 0,
+    MARKS: "",
+    PACKAGES_COUNT: 0,
+    PACKING_METHOD: "طرد",
+  };
+}
+
+function addGoodsItem() {
+  form.value.goodsItems.push(makeEmptyGoodsItem());
+}
+
+function removeGoodsItem(i) {
+  if (form.value.goodsItems.length === 1) return;
+  form.value.goodsItems.splice(i, 1);
+}
+
+function syncGoodsItemsToLegacy() {
+  const first = form.value.goodsItems?.[0];
+  if (!first) return;
+  form.value.GOODS_NATURE = first.GOODS_NATURE || "";
+  form.value.TARIFF_CODE = first.TARIFF_CODE || "";
+  form.value.GROSS_WEIGHT = first.GROSS_WEIGHT || 0;
+  form.value.MARKS = first.MARKS || "";
+  form.value.PACKAGES_COUNT = first.PACKAGES_COUNT || 0;
+  form.value.PACKING_METHOD = first.PACKING_METHOD || "طرد";
+}
+
+function buildGoodsRowsHtml() {
+  const items = form.value.goodsItems || [];
+  if (!items.length) return "";
+  return items
+    .map(
+      (it) => `
+    <tr>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center">${escapeHtml(it.GOODS_NATURE || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.TARIFF_CODE || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(String(it.GROSS_WEIGHT ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.MARKS || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(String(it.PACKAGES_COUNT ?? ""))}</td>
+      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.PACKING_METHOD || "")}</td>
+    </tr>`,
+    )
+    .join("");
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/* =========================
    Template + helpers
 ========================= */
 function fillTemplate(template, obj) {
@@ -592,6 +663,7 @@ async function buildPreview() {
       DRIVER_NAME: textToHtmlLines(form.value.DRIVER_NAME),
       VEHICLE_NO: textToHtmlLines(form.value.VEHICLE_NO),
       VEHICLE_REGION: textToHtmlLines(form.value.VEHICLE_REGION),
+      GOODS_ROWS: buildGoodsRowsHtml(),
     };
 
     previewHtml.value = fillTemplate(tplCache.value, dataForTpl);
@@ -622,6 +694,7 @@ async function saveWaybill() {
   try {
     normalizeCharges();
     syncDriverFieldsFromSelected();
+    syncGoodsItemsToLegacy();
 
     // ✅ لا تحذف SERIAL_NO (لو موجود) — والسيرفر رح يقرر النهائي
     const payload = { ...form.value };
@@ -1018,33 +1091,61 @@ async function saveWaybill() {
             <span class="card-dot"></span>
             <h3>تفاصيل البضاعة</h3>
           </div>
-          <div class="row three-col">
+
+          <div
+            class="goods-row"
+            v-for="(g, i) in form.goodsItems"
+            :key="i"
+            style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: end; margin-bottom: 8px;"
+          >
             <div class="field">
               <label>طبيعة البضاعة</label>
-              <input v-model="form.GOODS_NATURE" class="input" />
+              <input v-model="g.GOODS_NATURE" class="input" />
             </div>
             <div class="field">
-              <label>قيمة البضاعة</label>
-              <input v-model="form.TARIFF_CODE" class="input" />
+              <label>الرمز الجمركي</label>
+              <input v-model="g.TARIFF_CODE" class="input" />
             </div>
             <div class="field">
               <label>Gross Weight</label>
-              <input v-model="form.GROSS_WEIGHT" class="input" />
+              <input v-model="g.GROSS_WEIGHT" class="input" type="number" min="0" step="0.001" />
+            </div>
+            <div class="field">
+              <label>الأرقام والعلامات</label>
+              <input v-model="g.MARKS" class="input" />
             </div>
             <div class="field">
               <label>عدد الطرود</label>
-              <input v-model="form.PACKAGES_COUNT" class="input" />
+              <input v-model="g.PACKAGES_COUNT" class="input" type="number" min="0" step="1" />
             </div>
-            <div class="field">
-              <label>نوع التغليف</label>
-              <select v-model="form.PACKING_METHOD" class="input">
-                <option value="">— اختر نوع التغليف —</option>
-                <option value="طرد">طرد</option>
-                <option value="وحدة">وحدة</option>
-                <option value="طبلية">طبلية</option>
-                <option value="كرتونة">كرتونة</option>
-              </select>
+            <div class="field" style="display: flex; gap: 6px; align-items: flex-end;">
+              <div style="flex: 1;">
+                <label>نوع التغليف</label>
+                <select v-model="g.PACKING_METHOD" class="input">
+                  <option value="طرد">طرد</option>
+                  <option value="وحدة">وحدة</option>
+                  <option value="طبلية">طبلية</option>
+                  <option value="كرتونة">كرتونة</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                class="btn btn--danger btn--small"
+                @click="removeGoodsItem(i)"
+                title="حذف"
+              >
+                ×
+              </button>
             </div>
+          </div>
+
+          <div style="margin-top: 6px;">
+            <button type="button" class="btn btn--secondary btn--small" @click="addGoodsItem">
+              ➕ إضافة تفصيلة
+            </button>
+          </div>
+
+          <div class="row three-col" style="margin-top: 12px;">
             <div class="field">
               <label>المستندات المرفقة</label>
               <input

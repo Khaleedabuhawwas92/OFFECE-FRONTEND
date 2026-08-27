@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import axios from "axios";
 
-const API_BASE = "http://127.0.0.1:4000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 
 const route = useRoute();
 const router = useRouter();

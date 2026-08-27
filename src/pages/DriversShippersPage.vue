@@ -99,7 +99,7 @@
 import { ref, onMounted } from "vue";
 import axios from "axios";
 
-const API = "http://localhost:4000/api"; // غيره للسيرفر لاحقاً
+const API = (import.meta.env.VITE_API_URL || "http://127.0.0.1:4000") + "/api";
 
 // ====== state variables ======
 const drivers = ref([]);

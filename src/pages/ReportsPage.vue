@@ -4,7 +4,7 @@ import axios from "axios";
 import { useRouter } from "vue-router";
 
 const router = useRouter();
-const API_BASE = "http://127.0.0.1:4000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 
 const loading = ref(false);
 const errorMessage = ref("");

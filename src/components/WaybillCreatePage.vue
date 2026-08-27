@@ -4,7 +4,7 @@ import axios from "axios";
 import PreviewModal from "./dashboard/PreviewModal.vue";
 import { useRouter } from "vue-router";
 
-const API_BASE = "http://127.0.0.1:4000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 const router = useRouter();
 
 const loading = ref(false);
