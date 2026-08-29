@@ -781,29 +781,58 @@ app.get("/api/reports/office-commission", async (req, res) => {
 
     const invoices = await Invoice.find(query).lean();
 
+    function itemIsCommission(item) {
+      const hay = [
+        item.desc,
+        item.description,
+        item.name,
+        item.item,
+        item.details,
+      ]
+        .map((v) => String(v || ""))
+        .join(" ");
+      return hay.includes("عمولة مكتب");
+    }
+
+    function resolveAmount(item) {
+      let amt = Number(item.amount_jod);
+      if (amt > 0) return amt;
+      amt = Number(item.lineNet);
+      if (amt > 0) return amt;
+      amt = Number(item.total);
+      if (amt > 0) return amt;
+      amt = Number(item.amount);
+      if (amt > 0) return amt;
+      return Math.max(
+        0,
+        (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) -
+          (Number(item.discount) || 0),
+      );
+    }
+
     const results = [];
     for (const inv of invoices) {
       const items = inv.items || [];
-      const commissionItems = items.filter((item) =>
-        String(item.desc || "").includes("عمولة مكتب"),
-      );
+      const commissionItems = items.filter(itemIsCommission);
 
       if (commissionItems.length === 0) continue;
 
-      const totalCommission = commissionItems.reduce((sum, item) => {
-        let amt = Number(item.amount_jod) || 0;
-        if (!amt) amt = Number(item.lineNet) || 0;
-        if (!amt) amt = Number(item.total) || 0;
-        if (!amt) amt = Number(item.amount) || 0;
-        if (!amt) {
-          amt =
-            (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) -
-            (Number(item.discount) || 0);
-        }
-        return sum + amt;
-      }, 0);
+      const totalCommission = commissionItems.reduce(
+        (sum, item) => sum + resolveAmount(item),
+        0,
+      );
 
-      const descriptions = commissionItems.map((item) => item.desc).join(" + ");
+      const descriptions = commissionItems
+        .map(
+          (item) =>
+            item.desc ||
+            item.description ||
+            item.name ||
+            item.item ||
+            item.details ||
+            "",
+        )
+        .join(" + ");
       const currency =
         commissionItems[0]?.currency || inv.einv?.currency || "JOD";
 
