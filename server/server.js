@@ -1949,6 +1949,80 @@ app.get("/api/admin/customer-portal/:companyId", authMiddleware, requireAdmin, a
   }
 });
 
+app.get("/api/admin/companies", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const consignors = await Consignor.find({}).lean();
+    const customerUsers = await User.find({ role: "CUSTOMER" }).lean();
+    const userMap = new Map();
+    for (const u of customerUsers) {
+      userMap.set(String(u.companyId), u);
+    }
+
+    const results = [];
+    for (const c of consignors) {
+      const cid = String(c._id);
+      const user = userMap.get(cid);
+      const companyName = c.name || "";
+      const companyValues = [cid, companyName].filter(Boolean);
+      const [invCount, wbCount] = await Promise.all([
+        Invoice.countDocuments({ company: { $in: companyValues } }),
+        Waybill.countDocuments({ CONSIGNOR_NAME: { $in: companyValues } }),
+      ]);
+      results.push({
+        _id: cid,
+        name: companyName,
+        address: c.address || "",
+        city: c.city || "",
+        country: c.country || "",
+        phone: c.phone || "",
+        customerEmail: user?.email || "",
+        portalEnabled: user?.portalEnabled === true,
+        invoicesCount: invCount,
+        waybillsCount: wbCount,
+      });
+    }
+    return res.json(results);
+  } catch (err) {
+    console.error("GET /api/admin/companies error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/admin/companies/:id", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(400).json({ error: "id is required" });
+    }
+    const c = await Consignor.findById(id).lean();
+    if (!c) {
+      return res.status(404).json({ error: "Company not found" });
+    }
+    const user = await User.findOne({ companyId: id, role: "CUSTOMER" }).lean();
+    const companyName = c.name || "";
+    const companyValues = [id, companyName].filter(Boolean);
+    const [invCount, wbCount] = await Promise.all([
+      Invoice.countDocuments({ company: { $in: companyValues } }),
+      Waybill.countDocuments({ CONSIGNOR_NAME: { $in: companyValues } }),
+    ]);
+    return res.json({
+      _id: id,
+      name: companyName,
+      address: c.address || "",
+      city: c.city || "",
+      country: c.country || "",
+      phone: c.phone || "",
+      customerEmail: user?.email || "",
+      portalEnabled: user?.portalEnabled === true,
+      invoicesCount: invCount,
+      waybillsCount: wbCount,
+    });
+  } catch (err) {
+    console.error("GET /api/admin/companies/:id error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🌐 Server running on http://localhost:${PORT}`);
 });

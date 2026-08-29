@@ -13,6 +13,8 @@ import EditInvoice from "../components/EditInvoice.vue";
 import LoginView from "../components/LoginView.vue";
 import CustomerLogin from "../components/CustomerLogin.vue";
 import CustomerDashboard from "../components/CustomerDashboard.vue";
+import AdminCompanies from "../components/AdminCompanies.vue";
+import AdminCompanyDetails from "../components/AdminCompanyDetails.vue";
 
 function getTokenRole() {
   const token = localStorage.getItem("auth_token");
@@ -96,6 +98,21 @@ const routes = [
     meta: { protected: true, customerOnly: true },
   },
 
+  // admin companies
+  {
+    path: "/admin/companies",
+    name: "AdminCompanies",
+    component: AdminCompanies,
+    meta: { protected: true, adminOnly: true },
+  },
+  {
+    path: "/admin/companies/:id",
+    name: "AdminCompanyDetails",
+    component: AdminCompanyDetails,
+    props: true,
+    meta: { protected: true, adminOnly: true },
+  },
+
   // fallback
   { path: "/:pathMatch(.*)*", redirect: "/", meta: { protected: false } },
 ];
@@ -109,7 +126,16 @@ router.beforeEach((to, from, next) => {
   const token = localStorage.getItem("auth_token");
   const isProtected = to.meta?.protected !== false;
   const customerOnly = to.meta?.customerOnly === true;
+  const adminOnly = to.meta?.adminOnly === true;
   const role = getTokenRole();
+
+  // Admin-only routes
+  if (adminOnly) {
+    if (!token || role !== "ADMIN") {
+      return next("/login");
+    }
+    return next();
+  }
 
   // Customer-only routes
   if (customerOnly) {
@@ -127,6 +153,11 @@ router.beforeEach((to, from, next) => {
   // If going to /login with valid ADMIN token, redirect to admin dashboard
   if (to.path === "/login" && token && role === "ADMIN") {
     return next("/");
+  }
+
+  // If going to /login with valid CUSTOMER token, redirect to customer dashboard
+  if (to.path === "/login" && token && role === "CUSTOMER") {
+    return next("/customer/dashboard");
   }
 
   // If going to /customer/login with valid CUSTOMER token, redirect to customer dashboard
