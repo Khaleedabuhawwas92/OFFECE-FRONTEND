@@ -768,6 +768,55 @@ app.delete("/api/invoices/:id", async (req, res) => {
   }
 });
 
+/* ======================= REPORTS: Office Commission ======================= */
+app.get("/api/reports/office-commission", async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    let query = {};
+    if (from || to) {
+      query.date = {};
+      if (from) query.date.$gte = from;
+      if (to) query.date.$lte = to;
+    }
+
+    const invoices = await Invoice.find(query).lean();
+
+    const results = [];
+    for (const inv of invoices) {
+      const items = inv.items || [];
+      const commissionItems = items.filter((item) =>
+        String(item.desc || "").includes("عمولة مكتب"),
+      );
+
+      if (commissionItems.length === 0) continue;
+
+      const totalCommission = commissionItems.reduce(
+        (sum, item) => sum + (Number(item.amount) || 0),
+        0,
+      );
+
+      const descriptions = commissionItems.map((item) => item.desc).join(" + ");
+      const currency =
+        commissionItems[0]?.currency || inv.einv?.currency || "JOD";
+
+      results.push({
+        invoice_id: inv._id,
+        invoice_number: inv.invoice_number,
+        date: inv.date,
+        company: inv.company,
+        description: descriptions,
+        currency,
+        commission_amount: Number(totalCommission.toFixed(3)),
+      });
+    }
+
+    res.json(results);
+  } catch (err) {
+    console.error("Office commission report error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 /* ======================= VOUCHERS ======================= */
 app.get("/api/vouchers", async (req, res) => {
   try {

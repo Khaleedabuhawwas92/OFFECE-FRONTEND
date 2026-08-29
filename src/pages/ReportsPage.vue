@@ -16,6 +16,9 @@ const dateTo = ref(""); // yyyy-mm-dd
 
 const invoices = ref([]);
 const waybills = ref([]);
+const officeCommission = ref([]);
+const commissionFrom = ref("");
+const commissionTo = ref("");
 
 /* =========================
    Date helpers
@@ -95,11 +98,26 @@ async function fetchAll() {
     ]);
     invoices.value = Array.isArray(invRes.data) ? invRes.data : [];
     waybills.value = Array.isArray(wbRes.data) ? wbRes.data : [];
+    await fetchOfficeCommission();
   } catch (e) {
     console.error(e);
     errorMessage.value = "تعذّر تحميل بيانات التقارير.";
   } finally {
     loading.value = false;
+  }
+}
+
+async function fetchOfficeCommission() {
+  try {
+    const params = new URLSearchParams();
+    if (commissionFrom.value) params.append("from", commissionFrom.value);
+    if (commissionTo.value) params.append("to", commissionTo.value);
+    const res = await axios.get(
+      `${API_BASE}/api/reports/office-commission?${params.toString()}`,
+    );
+    officeCommission.value = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    console.error("fetchOfficeCommission error:", e);
   }
 }
 
@@ -155,7 +173,7 @@ const months = computed(() => {
       cur.sum += Number(inv?.value_jod || 0) || 0;
       map.set(key, cur);
     }
-  } else {
+  } else if (tab.value === "waybills") {
     for (const wb of filteredWaybills.value) {
       const t = toTimeOrNull(wb?.DATE) ?? toTimeOrNull(wb?.created_at);
       if (!t) continue;
@@ -179,6 +197,29 @@ const months = computed(() => {
       if (getWaybillSource(wb) === "BOT") cur.bot += 1;
       else cur.manual += 1;
 
+      map.set(key, cur);
+    }
+  } else if (tab.value === "commission") {
+    for (const row of filteredCommission.value) {
+      const t = toTimeOrNull(row?.date);
+      if (!t) continue;
+      const d = new Date(t);
+
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const key = ymKey(y, m);
+
+      const cur = map.get(key) || {
+        key,
+        year: y,
+        month: m,
+        label: key,
+        count: 0,
+        sum: 0,
+      };
+
+      cur.count += 1;
+      cur.sum += Number(row?.commission_amount || 0) || 0;
       map.set(key, cur);
     }
   }
@@ -245,6 +286,20 @@ const topVehicles = computed(() => {
     .map(([vehicle, count]) => ({ vehicle, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
+});
+
+const filteredCommission = computed(() => {
+  return (officeCommission.value || []).filter((row) => {
+    const t = toTimeOrNull(row?.date);
+    return inDateRange(t, commissionFrom.value, commissionTo.value);
+  });
+});
+
+const commissionTotal = computed(() => {
+  return filteredCommission.value.reduce(
+    (sum, r) => sum + (Number(r.commission_amount) || 0),
+    0,
+  );
 });
 
 /* =========================
@@ -382,6 +437,13 @@ function exportWaybillsCsv() {
               >
                 وثائق النقل <span class="badge">{{ wbCount }}</span>
               </button>
+              <button
+                class="tab"
+                :class="{ active: tab === 'commission' }"
+                @click="tab = 'commission'"
+              >
+                عمولة المكتب <span class="badge">{{ filteredCommission.length }}</span>
+              </button>
             </div>
 
             <div class="filter-actions">
@@ -417,6 +479,18 @@ function exportWaybillsCsv() {
                 <div class="stat-label">مجموع الفواتير (JOD)</div>
                 <div class="stat-val" dir="ltr">
                   {{ Number(invSumJod || 0).toFixed(3) }}
+                </div>
+              </div>
+            </div>
+            <div v-else-if="tab === 'commission'" class="summary-grid">
+              <div class="stat-card">
+                <div class="stat-label">عدد الفواتير</div>
+                <div class="stat-val">{{ filteredCommission.length }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">مجموع العمولة</div>
+                <div class="stat-val" dir="ltr">
+                  {{ Number(commissionTotal || 0).toFixed(3) }}
                 </div>
               </div>
             </div>
@@ -459,6 +533,19 @@ function exportWaybillsCsv() {
                   </div>
                   <div class="ms">
                     <div class="ms-label">المجموع (JOD)</div>
+                    <div class="ms-val" dir="ltr">
+                      {{ Number(m.sum || 0).toFixed(3) }}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="month-stats" v-else-if="tab === 'commission'">
+                  <div class="ms">
+                    <div class="ms-label">عدد</div>
+                    <div class="ms-val">{{ m.count }}</div>
+                  </div>
+                  <div class="ms">
+                    <div class="ms-label">المجموع</div>
                     <div class="ms-val" dir="ltr">
                       {{ Number(m.sum || 0).toFixed(3) }}
                     </div>
@@ -524,7 +611,7 @@ function exportWaybillsCsv() {
               </div>
             </template>
 
-            <template v-else>
+            <template v-else-if="tab === 'waybills'">
               <div class="card table-card">
                 <div class="section-header">
                   <h2 class="section-title">أعلى 10 سائقين</h2>
@@ -573,6 +660,55 @@ function exportWaybillsCsv() {
                       </tr>
                       <tr v-if="topVehicles.length === 0">
                         <td colspan="2" class="table-empty">
+                          لا يوجد بيانات ضمن الفترة
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </template>
+
+            <template v-else-if="tab === 'commission'">
+              <div class="card table-card">
+                <div class="section-header">
+                  <h2 class="section-title">تقرير عمولة المكتب</h2>
+                </div>
+                <div class="filter-row" style="margin: 12px 0; padding: 0 4px;">
+                  <div class="filter-group">
+                    <label class="filter-label">
+                      <span>📅 من</span>
+                      <input v-model="commissionFrom" type="date" class="inp" @change="fetchOfficeCommission" />
+                    </label>
+                    <label class="filter-label">
+                      <span>📅 إلى</span>
+                      <input v-model="commissionTo" type="date" class="inp" @change="fetchOfficeCommission" />
+                    </label>
+                  </div>
+                </div>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th class="th-number">رقم الفاتورة</th>
+                        <th class="th-date">التاريخ</th>
+                        <th class="th-company">الشركة</th>
+                        <th>البيان</th>
+                        <th>العملة</th>
+                        <th class="th-number" dir="ltr">المبلغ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(r, i) in filteredCommission" :key="i">
+                        <td>{{ r.invoice_number }}</td>
+                        <td>{{ r.date }}</td>
+                        <td class="clip" :title="r.company">{{ r.company }}</td>
+                        <td class="clip" :title="r.description">{{ r.description }}</td>
+                        <td>{{ r.currency }}</td>
+                        <td dir="ltr">{{ Number(r.commission_amount || 0).toFixed(3) }}</td>
+                      </tr>
+                      <tr v-if="filteredCommission.length === 0">
+                        <td colspan="6" class="table-empty">
                           لا يوجد بيانات ضمن الفترة
                         </td>
                       </tr>

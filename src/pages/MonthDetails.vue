@@ -15,6 +15,7 @@ const tab = ref("invoices"); // invoices | waybills
 
 const invoices = ref([]);
 const waybills = ref([]);
+const officeCommission = ref([]);
 
 const q = ref(""); // بحث داخل الشهر
 const innerFrom = ref(""); // فلترة داخل الشهر (yyyy-mm-dd)
@@ -207,11 +208,24 @@ async function fetchAll() {
     ]);
     invoices.value = Array.isArray(invRes.data) ? invRes.data : [];
     waybills.value = Array.isArray(wbRes.data) ? wbRes.data : [];
+    await fetchOfficeCommission();
   } catch (e) {
     console.error(e);
     errorMessage.value = "تعذّر تحميل بيانات الشهر.";
   } finally {
     loading.value = false;
+  }
+}
+
+async function fetchOfficeCommission() {
+  try {
+    const { from, to } = monthStartEndISO(year.value, month.value);
+    const res = await axios.get(
+      `${API_BASE}/api/reports/office-commission?from=${from}&to=${to}`,
+    );
+    officeCommission.value = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    console.error("fetchOfficeCommission error:", e);
   }
 }
 
@@ -284,6 +298,23 @@ const wbManual = computed(
   () => shownWaybills.value.filter((x) => getWaybillSource(x) !== "BOT").length,
 );
 
+const shownCommission = computed(() => {
+  return (officeCommission.value || [])
+    .filter((row) => rowMatches(row))
+    .filter((row) => {
+      const t = toTimeOrNull(row?.date);
+      return inRange(t, innerFrom.value, innerTo.value);
+    });
+});
+
+const commissionCount = computed(() => shownCommission.value.length);
+const commissionSum = computed(() =>
+  shownCommission.value.reduce(
+    (acc, row) => acc + (Number(row?.commission_amount || 0) || 0),
+    0,
+  ),
+);
+
 watch([year, month], () => {
   q.value = "";
   innerFrom.value = "";
@@ -350,6 +381,13 @@ watch([year, month], () => {
           >
             بوالص <span class="badge">{{ wbCount }}</span>
           </button>
+          <button
+            class="tab"
+            :class="{ active: tab === 'commission' }"
+            @click="tab = 'commission'"
+          >
+            عمولة المكتب <span class="badge">{{ commissionCount }}</span>
+          </button>
         </div>
       </div>
 
@@ -366,6 +404,19 @@ watch([year, month], () => {
             <div class="sum-title">مجموع الفواتير (JOD)</div>
             <div class="sum-val" dir="ltr">
               {{ Number(invSum || 0).toFixed(3) }}
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="tab === 'commission'" class="sum-row">
+          <div class="sum-card">
+            <div class="sum-title">عدد الفواتير</div>
+            <div class="sum-val">{{ commissionCount }}</div>
+          </div>
+          <div class="sum-card">
+            <div class="sum-title">مجموع العمولة</div>
+            <div class="sum-val" dir="ltr">
+              {{ Number(commissionSum || 0).toFixed(3) }}
             </div>
           </div>
         </div>
@@ -421,7 +472,7 @@ watch([year, month], () => {
           </table>
 
           <!-- WAYBILLS -->
-          <table class="table" v-else>
+          <table class="table" v-else-if="tab === 'waybills'">
             <thead>
               <tr>
                 <th dir="ltr">Serial</th>
@@ -471,6 +522,39 @@ watch([year, month], () => {
 
               <tr v-if="shownWaybills.length === 0">
                 <td colspan="7" class="empty">
+                  لا يوجد نتائج داخل الشهر حسب الفلترة
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- COMMISSION -->
+          <table class="table table--invoices" v-else-if="tab === 'commission'">
+            <thead>
+              <tr>
+                <th class="th-number" dir="ltr">رقم الفاتورة</th>
+                <th class="th-company">الشركة</th>
+                <th>البيان</th>
+                <th>العملة</th>
+                <th class="th-value" dir="ltr">المبلغ</th>
+                <th class="th-date" dir="ltr">التاريخ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in shownCommission" :key="row.invoice_id">
+                <td class="td-number" dir="ltr">{{ row.invoice_number }}</td>
+                <td class="clip td-company" :title="row.company">
+                  {{ row.company }}
+                </td>
+                <td class="clip" :title="row.description">{{ row.description }}</td>
+                <td>{{ row.currency }}</td>
+                <td class="td-value" dir="ltr">
+                  {{ Number(row.commission_amount || 0).toFixed(3) }}
+                </td>
+                <td class="muted td-date" dir="ltr">{{ row.date }}</td>
+              </tr>
+              <tr v-if="shownCommission.length === 0">
+                <td colspan="6" class="empty">
                   لا يوجد نتائج داخل الشهر حسب الفلترة
                 </td>
               </tr>
