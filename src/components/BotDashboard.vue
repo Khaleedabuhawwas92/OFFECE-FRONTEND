@@ -1146,8 +1146,8 @@ onMounted(async () => {
           <span v-else>⛔ غير شغّال</span>
         </div>
 
-        <button class="btn btn--secondary" @click="fetchBotStatus">
-          🔌 تحديث حالة البوت
+        <button class="btn btn--secondary btn--small" @click="fetchBotStatus">
+          🔌 تحديث
         </button>
 
         <nav class="main-nav">
@@ -1160,8 +1160,8 @@ onMounted(async () => {
           >
         </nav>
 
-        <button class="btn btn--secondary" @click="handleLogout">
-          🔒 تسجيل خروج
+        <button class="btn btn--secondary btn--small" @click="handleLogout">
+          🔒 خروج
         </button>
       </div>
     </header>
@@ -1169,26 +1169,20 @@ onMounted(async () => {
     <!-- Stats -->
     <div class="stats-row">
       <div class="stat-card">
-        <div class="stat-top">
-          <div class="stat-icon">🚚</div>
-          <div class="stat-label">عدد السائقين</div>
-        </div>
+        <div class="stat-icon">🚚</div>
+        <div class="stat-label">عدد السائقين</div>
         <div class="stat-value">{{ driversCount }}</div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-top">
-          <div class="stat-icon">📦</div>
-          <div class="stat-label">عدد المرسلين</div>
-        </div>
+        <div class="stat-icon">📦</div>
+        <div class="stat-label">عدد المرسلين</div>
         <div class="stat-value">{{ consignorsCount }}</div>
       </div>
 
       <div class="stat-card">
-        <div class="stat-top">
-          <div class="stat-icon">🏁</div>
-          <div class="stat-label">عدد المرسل إليهم</div>
-        </div>
+        <div class="stat-icon">🏁</div>
+        <div class="stat-label">عدد المرسل إليهم</div>
         <div class="stat-value">{{ consigneesCount }}</div>
       </div>
     </div>
@@ -1200,7 +1194,7 @@ onMounted(async () => {
         :class="{ 'tab--active': activeTab === 'vouchers' }"
         @click="activeTab = 'vouchers'"
       >
-        سندات (قبض/تسديد)
+        <span class="tab-label">سندات (قبض/تسديد)</span>
         <span class="tab-badge">{{ filteredVouchers.length }}</span>
       </button>
 
@@ -1209,7 +1203,7 @@ onMounted(async () => {
         :class="{ 'tab--active': activeTab === 'waybills' }"
         @click="activeTab = 'waybills'"
       >
-        وثائق النقل
+        <span class="tab-label">وثائق النقل</span>
         <span class="tab-badge">{{ filteredWaybills.length }}</span>
       </button>
 
@@ -1218,7 +1212,7 @@ onMounted(async () => {
         :class="{ 'tab--active': activeTab === 'invoices' }"
         @click="activeTab = 'invoices'"
       >
-        فواتير التصدير
+        <span class="tab-label">فواتير التصدير</span>
         <span class="tab-badge">{{ filteredInvoices.length }}</span>
       </button>
     </nav>
@@ -1929,13 +1923,14 @@ onMounted(async () => {
 .topbar {
   background: #ffffffcc;
   backdrop-filter: blur(8px);
-  padding: 14px 18px;
+  padding: 12px 18px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid #d9dde6;
   flex-shrink: 0;
   gap: 14px;
+  flex-wrap: wrap;
 }
 
 .brand {
@@ -1957,14 +1952,15 @@ onMounted(async () => {
 .top-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex: 1;
 }
 
 .main-nav {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -1972,12 +1968,13 @@ onMounted(async () => {
 .nav-link {
   font-size: 13px;
   text-decoration: none;
-  padding: 7px 10px;
+  padding: 6px 10px;
   border-radius: 10px;
   border: 1px solid #e5e7eb;
   color: #111827;
   background: #fafafa;
   transition: 0.15s ease;
+  white-space: nowrap;
 }
 .nav-link:hover {
   transform: translateY(-1px);
@@ -1990,11 +1987,12 @@ onMounted(async () => {
 
 /* Bot pill */
 .bot-pill {
-  padding: 7px 12px;
+  padding: 6px 10px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 12px;
   border: 1px solid #e5e7eb;
   user-select: none;
+  white-space: nowrap;
 }
 .bot-pill--running {
   background: #e8f5e9;
@@ -2009,43 +2007,60 @@ onMounted(async () => {
 
 /* Stats */
 .stats-row {
-  display: flex;
-  gap: 12px;
-  padding: 12px 18px 0;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  padding: 14px 18px 0;
 }
 
 .stat-card {
   background: #ffffff;
   border-radius: 14px;
-  padding: 12px 14px;
+  padding: 16px;
   border: 1px solid #e5e7eb;
-  min-width: 210px;
   box-shadow: 0 6px 18px rgba(16, 24, 40, 0.06);
-}
-.stat-top {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  min-height: 120px;
 }
 .stat-icon {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   border-radius: 12px;
   background: #f3f4f6;
+  font-size: 18px;
 }
 .stat-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #6b7280;
-  margin: 0;
+  font-weight: 600;
 }
 .stat-value {
-  margin-top: 8px;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 900;
   color: #1976d2;
+  line-height: 1.2;
+}
+
+@media (max-width: 900px) {
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+  .top-actions {
+    justify-content: center;
+    width: 100%;
+  }
 }
 
 /* Tabs */
@@ -2055,26 +2070,36 @@ onMounted(async () => {
   border-bottom: 1px solid #d9dde6;
   padding: 0 18px;
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
+  align-items: stretch;
 }
 
 .tab {
   border: none;
   background: none;
-  padding: 12px 12px;
+  padding: 12px 16px;
   font-size: 14px;
   cursor: pointer;
   color: #4b5563;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+}
+.tab:hover {
+  color: #111827;
 }
 .tab--active {
   border-bottom: 3px solid #1976d2;
   color: #1976d2;
   font-weight: 800;
+}
+.tab-label {
+  display: inline-block;
 }
 .tab-badge {
   background: #eef2ff;
@@ -2084,6 +2109,9 @@ onMounted(async () => {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 800;
+  min-width: 22px;
+  text-align: center;
+  display: inline-block;
 }
 
 /* Main */
