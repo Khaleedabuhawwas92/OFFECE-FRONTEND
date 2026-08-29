@@ -1127,8 +1127,11 @@ onMounted(async () => {
     <!-- Topbar -->
     <header class="topbar">
       <div class="brand">
-        <div class="app-title">نظام الفواتير ووثائق النقل</div>
-        <div class="app-subtitle">MongoDB / Node / Telegram Bot</div>
+        <img src="/images/company-logo.png" class="company-logo" alt="logo" />
+        <div class="brand-text">
+          <div class="app-title">نظام الفواتير ووثائق النقل</div>
+          <div class="app-subtitle">MongoDB / Node / Telegram Bot</div>
+        </div>
       </div>
 
       <div class="top-actions">
@@ -1935,8 +1938,22 @@ onMounted(async () => {
 
 .brand {
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-text {
+  display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.company-logo {
+  max-height: 44px;
+  width: auto;
+  object-fit: contain;
+  display: block;
 }
 
 .app-title {

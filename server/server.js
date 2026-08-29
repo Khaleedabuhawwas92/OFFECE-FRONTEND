@@ -307,7 +307,15 @@ app.post("/api/auth/login", async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
-    const token = jwt.sign({ email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+    if (user.role === "CUSTOMER" && user.portalEnabled !== true) {
+      return res.status(403).json({ error: "Customer portal is disabled" });
+    }
+    const tokenPayload = { email: user.email, role: user.role };
+    if (user.role === "CUSTOMER") {
+      tokenPayload.companyId = user.companyId || "";
+      tokenPayload.companyName = user.companyName || "";
+    }
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: "7d" });
     return res.json({ token });
   } catch (err) {
     console.error("Login error:", err);
@@ -316,7 +324,12 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 app.get("/api/auth/me", authMiddleware, (req, res) => {
-  res.json({ email: req.user.email });
+  res.json({
+    email: req.user.email,
+    role: req.user.role,
+    companyId: req.user.companyId || "",
+    companyName: req.user.companyName || "",
+  });
 });
 
 // Protect all subsequent /api routes
@@ -1785,6 +1798,154 @@ app.get("/api/waybills/:id/preview", async (req, res) => {
   } catch (err) {
     console.error("preview error:", err);
     res.status(500).send("Internal Server Error");
+  }
+});
+
+/* ======================= CUSTOMER PORTAL ======================= */
+app.get("/api/customer/invoices", async (req, res) => {
+  try {
+    if (req.user.role !== "CUSTOMER") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const companyValues = [req.user.companyId, req.user.companyName].filter(Boolean);
+    if (!companyValues.length) {
+      return res.json([]);
+    }
+    const { limit = 100 } = req.query;
+    const invoices = await Invoice.find({ company: { $in: companyValues } })
+      .sort({ created_at: -1 })
+      .limit(Number(limit));
+    res.json(invoices);
+  } catch (err) {
+    console.error("Error getting customer invoices:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/customer/waybills", async (req, res) => {
+  try {
+    if (req.user.role !== "CUSTOMER") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const companyValues = [req.user.companyId, req.user.companyName].filter(Boolean);
+    if (!companyValues.length) {
+      return res.json([]);
+    }
+    const { limit = 100 } = req.query;
+    const waybills = await Waybill.find({ CONSIGNOR_NAME: { $in: companyValues } })
+      .sort({ created_at: -1 })
+      .limit(Number(limit));
+    res.json(waybills);
+  } catch (err) {
+    console.error("Error getting customer waybills:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/* ======================= ADMIN CUSTOMER PORTAL ======================= */
+function requireAdmin(req, res, next) {
+  if (req.user.role !== "ADMIN") {
+    return res.status(403).json({ error: "Admin only" });
+  }
+  next();
+}
+
+app.post("/api/admin/customer-portal", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const { companyId, companyName, email, password } = req.body || {};
+    const normalizedEmail = String(email || "").toLowerCase().trim();
+    if (!normalizedEmail || !password || !companyId) {
+      return res.status(400).json({ error: "email, password, and companyId are required" });
+    }
+
+    const existing = await User.findOne({ email: normalizedEmail });
+    const passwordHash = await bcrypt.hash(String(password), 12);
+
+    if (existing) {
+      existing.passwordHash = passwordHash;
+      existing.companyId = String(companyId);
+      existing.companyName = String(companyName || "");
+      existing.role = "CUSTOMER";
+      await existing.save();
+      return res.json({
+        email: existing.email,
+        companyId: existing.companyId,
+        companyName: existing.companyName,
+        portalEnabled: existing.portalEnabled,
+      });
+    }
+
+    const created = await User.create({
+      email: normalizedEmail,
+      passwordHash,
+      role: "CUSTOMER",
+      companyId: String(companyId),
+      companyName: String(companyName || ""),
+      portalEnabled: false,
+      active: true,
+    });
+
+    return res.status(201).json({
+      email: created.email,
+      companyId: created.companyId,
+      companyName: created.companyName,
+      portalEnabled: created.portalEnabled,
+    });
+  } catch (err) {
+    console.error("POST /api/admin/customer-portal error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.patch("/api/admin/customer-portal/:companyId", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const companyId = String(req.params.companyId || "").trim();
+    const { portalEnabled } = req.body || {};
+    if (!companyId) {
+      return res.status(400).json({ error: "companyId is required" });
+    }
+
+    const user = await User.findOne({ companyId, role: "CUSTOMER" });
+    if (!user) {
+      return res.status(404).json({ error: "Customer user not found for this company" });
+    }
+
+    user.portalEnabled = portalEnabled === true;
+    await user.save();
+
+    return res.json({
+      email: user.email,
+      companyId: user.companyId,
+      companyName: user.companyName,
+      portalEnabled: user.portalEnabled,
+    });
+  } catch (err) {
+    console.error("PATCH /api/admin/customer-portal error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/admin/customer-portal/:companyId", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const companyId = String(req.params.companyId || "").trim();
+    if (!companyId) {
+      return res.status(400).json({ error: "companyId is required" });
+    }
+
+    const user = await User.findOne({ companyId, role: "CUSTOMER" });
+    if (!user) {
+      return res.status(404).json({ error: "Customer user not found for this company" });
+    }
+
+    return res.json({
+      email: user.email,
+      companyId: user.companyId,
+      companyName: user.companyName,
+      portalEnabled: user.portalEnabled,
+    });
+  } catch (err) {
+    console.error("GET /api/admin/customer-portal error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

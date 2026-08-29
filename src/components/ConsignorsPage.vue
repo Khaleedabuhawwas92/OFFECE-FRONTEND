@@ -9,6 +9,93 @@ const errorMessage = ref("");
 
 const consignors = ref([]);
 
+const portalModalOpen = ref(false);
+const portalLoading = ref(false);
+const portalError = ref("");
+const portalForm = ref({
+  companyId: "",
+  companyName: "",
+  email: "",
+  password: "",
+  portalEnabled: false,
+});
+
+function openPortalModal(c) {
+  portalError.value = "";
+  portalForm.value = {
+    companyId: c._id,
+    companyName: c.name || "",
+    email: "",
+    password: "",
+    portalEnabled: false,
+  };
+  portalModalOpen.value = true;
+  fetchPortalStatus(c._id);
+}
+
+function closePortalModal() {
+  portalModalOpen.value = false;
+}
+
+async function fetchPortalStatus(companyId) {
+  portalLoading.value = true;
+  portalError.value = "";
+  try {
+    const res = await axios.get(`${API_BASE}/api/admin/customer-portal/${companyId}`);
+    const data = res.data || {};
+    portalForm.value.email = data.email || "";
+    portalForm.value.portalEnabled = data.portalEnabled === true;
+  } catch (err) {
+    if (err?.response?.status === 404) {
+      portalForm.value.email = "";
+      portalForm.value.portalEnabled = false;
+    } else {
+      portalError.value = err?.response?.data?.error || "تعذّر جلب بيانات البوابة.";
+    }
+  } finally {
+    portalLoading.value = false;
+  }
+}
+
+async function savePortalAccount() {
+  portalLoading.value = true;
+  portalError.value = "";
+  try {
+    const { companyId, companyName, email, password } = portalForm.value;
+    if (!email.trim() || !password.trim()) {
+      portalError.value = "البريد وكلمة المرور مطلوبان.";
+      return;
+    }
+    await axios.post(`${API_BASE}/api/admin/customer-portal`, {
+      companyId,
+      companyName,
+      email,
+      password,
+    });
+    await fetchPortalStatus(companyId);
+  } catch (err) {
+    portalError.value = err?.response?.data?.error || "تعذّر حفظ الحساب.";
+  } finally {
+    portalLoading.value = false;
+  }
+}
+
+async function togglePortal() {
+  portalLoading.value = true;
+  portalError.value = "";
+  try {
+    const { companyId, portalEnabled } = portalForm.value;
+    await axios.patch(`${API_BASE}/api/admin/customer-portal/${companyId}`, {
+      portalEnabled: !portalEnabled,
+    });
+    await fetchPortalStatus(companyId);
+  } catch (err) {
+    portalError.value = err?.response?.data?.error || "تعذّر تغيير حالة البوابة.";
+  } finally {
+    portalLoading.value = false;
+  }
+}
+
 const form = ref({
   _id: null,
   name: "",
@@ -229,6 +316,12 @@ onMounted(() => {
                     >
                       🗑 حذف
                     </button>
+                    <button
+                      class="btn btn--secondary"
+                      @click="openPortalModal(c)"
+                    >
+                      🌐 بوابة العميل
+                    </button>
                   </td>
                 </tr>
                 <tr v-if="consignors.length === 0">
@@ -240,6 +333,65 @@ onMounted(() => {
             </table>
           </div>
         </section>
+      </div>
+    </div>
+
+    <!-- Portal Modal -->
+    <div v-if="portalModalOpen" class="portal-overlay" @click.self="closePortalModal">
+      <div class="portal-card">
+        <div class="portal-header">
+          <h3 class="portal-title">🌐 بوابة العميل</h3>
+          <button class="portal-close" @click="closePortalModal">✕</button>
+        </div>
+
+        <div class="portal-body">
+          <div v-if="portalError" class="alert alert--danger">{{ portalError }}</div>
+
+          <div class="portal-info">
+            <div class="portal-field">
+              <span class="portal-label">الشركة:</span>
+              <span class="portal-value">{{ portalForm.companyName }}</span>
+            </div>
+            <div class="portal-field">
+              <span class="portal-label">الحالة:</span>
+              <span
+                class="portal-status"
+                :class="portalForm.portalEnabled ? 'portal-status--on' : 'portal-status--off'"
+              >
+                {{ portalForm.portalEnabled ? "مفتوحة" : "مغلقة" }}
+              </span>
+            </div>
+          </div>
+
+          <div class="portal-form">
+            <label class="portal-input-wrap">
+              <span>البريد الإلكتروني</span>
+              <input v-model="portalForm.email" type="email" :disabled="portalLoading" />
+            </label>
+            <label class="portal-input-wrap">
+              <span>كلمة المرور</span>
+              <input v-model="portalForm.password" type="password" placeholder="••••••••" :disabled="portalLoading" />
+            </label>
+          </div>
+
+          <div class="portal-actions">
+            <button
+              class="btn btn--primary"
+              :disabled="portalLoading"
+              @click="savePortalAccount"
+            >
+              💾 إنشاء/تحديث الحساب
+            </button>
+            <button
+              class="btn"
+              :class="portalForm.portalEnabled ? 'btn--danger' : 'btn--success'"
+              :disabled="portalLoading || !portalForm.email"
+              @click="togglePortal"
+            >
+              {{ portalForm.portalEnabled ? "🔒 إغلاق البوابة" : "🔓 فتح البوابة" }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -550,6 +702,132 @@ onMounted(() => {
 .actions-cell .btn {
   padding: 4px 10px;
   font-size: 12px;
+}
+
+.portal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  direction: rtl;
+}
+.portal-card {
+  background: #fff;
+  border-radius: 12px;
+  width: 420px;
+  max-width: 92vw;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+  overflow: hidden;
+}
+.portal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eee;
+}
+.portal-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+.portal-close {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #666;
+}
+.portal-body {
+  padding: 16px;
+}
+.portal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.portal-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.portal-label {
+  font-weight: 700;
+  color: #374151;
+}
+.portal-value {
+  color: #111827;
+}
+.portal-status {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.portal-status--on {
+  background: #d1fae5;
+  color: #065f46;
+}
+.portal-status--off {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.portal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.portal-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.portal-input-wrap span {
+  font-weight: 600;
+  color: #444;
+}
+.portal-input-wrap input {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+}
+.portal-input-wrap input:focus {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25,118,210,0.12);
+}
+.portal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.portal-actions .btn {
+  flex: 1;
+  min-width: 140px;
+}
+.btn--success {
+  background: #059669;
+  color: #fff;
+  border: none;
+}
+.btn--success:hover {
+  background: #047857;
+}
+.btn--danger {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+}
+.btn--danger:hover {
+  background: #b91c1c;
 }
 
 @media (max-width: 900px) {

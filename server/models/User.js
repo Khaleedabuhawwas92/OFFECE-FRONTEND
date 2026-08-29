@@ -14,8 +14,20 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ["ADMIN", "USER"],
-    default: "USER",
+    enum: ["ADMIN", "CUSTOMER"],
+    default: "CUSTOMER",
+  },
+  companyId: {
+    type: String,
+    default: "",
+  },
+  companyName: {
+    type: String,
+    default: "",
+  },
+  portalEnabled: {
+    type: Boolean,
+    default: false,
   },
   active: {
     type: Boolean,

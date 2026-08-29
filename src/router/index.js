@@ -11,6 +11,19 @@ import InvoiceCreatePage from "../components/InvoiceCreatePage.vue";
 import WaybillCreatePage from "../components/WaybillCreatePage.vue";
 import EditInvoice from "../components/EditInvoice.vue";
 import LoginView from "../components/LoginView.vue";
+import CustomerLogin from "../components/CustomerLogin.vue";
+import CustomerDashboard from "../components/CustomerDashboard.vue";
+
+function getTokenRole() {
+  const token = localStorage.getItem("auth_token");
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role || null;
+  } catch {
+    return null;
+  }
+}
 
 const routes = [
   { path: "/login", name: "Login", component: LoginView, meta: { protected: false } },
@@ -69,6 +82,20 @@ const routes = [
     meta: { protected: true },
   },
 
+  // customer portal
+  {
+    path: "/customer/login",
+    name: "CustomerLogin",
+    component: CustomerLogin,
+    meta: { protected: false, customerOnly: false },
+  },
+  {
+    path: "/customer/dashboard",
+    name: "CustomerDashboard",
+    component: CustomerDashboard,
+    meta: { protected: true, customerOnly: true },
+  },
+
   // fallback
   { path: "/:pathMatch(.*)*", redirect: "/", meta: { protected: false } },
 ];
@@ -81,13 +108,37 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem("auth_token");
   const isProtected = to.meta?.protected !== false;
+  const customerOnly = to.meta?.customerOnly === true;
+  const role = getTokenRole();
 
+  // Customer-only routes
+  if (customerOnly) {
+    if (!token || role !== "CUSTOMER") {
+      return next("/customer/login");
+    }
+    return next();
+  }
+
+  // Admin routes (default protected)
   if (isProtected && !token) {
     return next("/login");
   }
-  if (to.path === "/login" && token) {
+
+  // If going to /login with valid ADMIN token, redirect to admin dashboard
+  if (to.path === "/login" && token && role === "ADMIN") {
     return next("/");
   }
+
+  // If going to /customer/login with valid CUSTOMER token, redirect to customer dashboard
+  if (to.path === "/customer/login" && token && role === "CUSTOMER") {
+    return next("/customer/dashboard");
+  }
+
+  // If going to /customer/login with ADMIN token, redirect to admin dashboard
+  if (to.path === "/customer/login" && token && role === "ADMIN") {
+    return next("/");
+  }
+
   next();
 });
 
