@@ -30,7 +30,20 @@ async function handleLogin() {
       return;
     }
     localStorage.setItem("auth_token", token);
-    router.push("/");
+
+    let role = null;
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      role = payload.role || null;
+    } catch {
+      role = null;
+    }
+
+    if (role === "CUSTOMER") {
+      router.push("/customer/dashboard");
+    } else {
+      router.push("/");
+    }
   } catch (err) {
     error.value =
       err?.response?.data?.error || "فشل تسجيل الدخول، تحقق من البيانات";
