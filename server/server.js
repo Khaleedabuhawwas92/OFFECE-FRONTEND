@@ -790,10 +790,18 @@ app.get("/api/reports/office-commission", async (req, res) => {
 
       if (commissionItems.length === 0) continue;
 
-      const totalCommission = commissionItems.reduce(
-        (sum, item) => sum + (Number(item.amount) || 0),
-        0,
-      );
+      const totalCommission = commissionItems.reduce((sum, item) => {
+        let amt = Number(item.amount_jod) || 0;
+        if (!amt) amt = Number(item.lineNet) || 0;
+        if (!amt) amt = Number(item.total) || 0;
+        if (!amt) amt = Number(item.amount) || 0;
+        if (!amt) {
+          amt =
+            (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) -
+            (Number(item.discount) || 0);
+        }
+        return sum + amt;
+      }, 0);
 
       const descriptions = commissionItems.map((item) => item.desc).join(" + ");
       const currency =
