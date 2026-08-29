@@ -33,7 +33,10 @@ async function handleLogin() {
 
     let role = null;
     try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
+      const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const pad = base64.length % 4;
+      const padded = pad ? base64 + "=".repeat(4 - pad) : base64;
+      const payload = JSON.parse(atob(padded));
       role = payload.role || null;
     } catch {
       role = null;

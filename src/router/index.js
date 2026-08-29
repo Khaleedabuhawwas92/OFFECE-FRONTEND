@@ -20,7 +20,10 @@ function getTokenRole() {
   const token = localStorage.getItem("auth_token");
   if (!token) return null;
   try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
+    const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4;
+    const padded = pad ? base64 + "=".repeat(4 - pad) : base64;
+    const payload = JSON.parse(atob(padded));
     return payload.role || null;
   } catch {
     return null;
