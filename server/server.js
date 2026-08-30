@@ -794,6 +794,27 @@ app.get("/api/reports/office-commission", async (req, res) => {
 
     const invoices = await Invoice.find(query).lean();
 
+    // ✅ قاعدة ثابتة مشتقة من بنود الفاتورة الحالية (تشمل الفواتير القديمة تلقائياً):
+    // فاتورة تحتوي بند "50 دولار اصدار بوليصة شحن" => عمولة مكتب 10 JOD (مرة واحدة فقط لكل فاتورة)
+    const FIXED_COMMISSION_AMOUNT = 10;
+    const normalizeDesc = (v) => String(v || "").replace(/\s+/g, " ").trim();
+    const FIXED_COMMISSION_DESC_NORM = normalizeDesc(
+      "50 دولار اصدار بوليصة شحن",
+    );
+
+    function itemMatchesFixedCommission(item) {
+      const hay = [
+        item.desc,
+        item.description,
+        item.name,
+        item.item,
+        item.details,
+      ]
+        .map((v) => normalizeDesc(v))
+        .join(" ");
+      return hay.includes(FIXED_COMMISSION_DESC_NORM);
+    }
+
     function itemIsCommission(item) {
       const hay = [
         item.desc,
@@ -827,15 +848,19 @@ app.get("/api/reports/office-commission", async (req, res) => {
     for (const inv of invoices) {
       const items = inv.items || [];
       const commissionItems = items.filter(itemIsCommission);
+      const fixedItems = items.filter(itemMatchesFixedCommission);
 
-      if (commissionItems.length === 0) continue;
+      if (commissionItems.length === 0 && fixedItems.length === 0) continue;
 
-      const totalCommission = commissionItems.reduce(
+      // ✅ 10 JOD ثابتة مرة واحدة لكل فاتورة مطابقة حتى لو تكرر الوصف
+      let totalCommission = commissionItems.reduce(
         (sum, item) => sum + resolveAmount(item),
         0,
       );
+      if (fixedItems.length > 0) totalCommission += FIXED_COMMISSION_AMOUNT;
 
-      const descriptions = commissionItems
+      const matchedItems = [...fixedItems, ...commissionItems];
+      const descriptions = matchedItems
         .map(
           (item) =>
             item.desc ||
@@ -845,9 +870,11 @@ app.get("/api/reports/office-commission", async (req, res) => {
             item.details ||
             "",
         )
+        .filter(Boolean)
         .join(" + ");
-      const currency =
-        commissionItems[0]?.currency || inv.einv?.currency || "JOD";
+      const currency = fixedItems.length
+        ? "JOD"
+        : commissionItems[0]?.currency || inv.einv?.currency || "JOD";
 
       results.push({
         invoice_id: inv._id,
