@@ -1004,45 +1004,69 @@
         </tr>
         <!-- Signatures -->
         <tr>
-          <!-- LEFT BOX : goods received / consignee signature & stamp -->
           <td
-            class="border-left-2"
-            style="
-              border-right: 1px solid #222;
-              padding: 5px 6px;
-              vertical-align: top;
-              height: 118px;
-            "
+            colspan="2"
+            class="border-left-2 border-right-2"
+            style="padding: 0"
           >
-            <div class="label-row">
-              <span class="en">Goods received in</span>
-              <span class="ar">(32) استلمت البضاعة في</span>
-            </div>
-            <div class="label-row">
-              <span class="en">On</span>
-              <span class="ar">تاريخ</span>
-            </div>
-            <div class="label-row">
-              <span class="en">Signature and stamp of the consignee</span>
-              <span class="ar">ختم وتوقيع المرسل إليه</span>
-            </div>
-            <!-- large blank area for physical signature/stamp -->
-            <div style="height: 56px"></div>
-          </td>
-          <!-- RIGHT BOX : carrier / sender signature & stamp -->
-          <td
-            class="border-right-2"
-            style="padding: 5px 6px; vertical-align: top; height: 118px"
-          >
-            <div class="label-row">
-              <span class="en">Signature and stamp</span>
-              <span class="ar">(31) توقيع وختم الناقل / المرسل</span>
-            </div>
-            <div class="label-row">
-              <span class="en">Signature/stamp of carrier / sender</span>
-            </div>
-            <!-- large blank area for physical signature/stamp -->
-            <div style="height: 74px"></div>
+            <table
+              style="
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                border: none;
+              "
+            >
+              <tr>
+                <!-- BOX 1 : goods received -->
+                <td
+                  style="
+                    width: 33.33%;
+                    border: none;
+                    border-right: 1px solid #222;
+                    padding: 5px 6px;
+                    vertical-align: top;
+                    height: 118px;
+                  "
+                >
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Goods received in</div>
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">On</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">(32) استلمت البضاعة في</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">تاريخ</div>
+                </td>
+                <!-- BOX 2 : consignee signature & stamp -->
+                <td
+                  style="
+                    width: 33.33%;
+                    border: none;
+                    border-right: 1px solid #222;
+                    padding: 5px 6px;
+                    vertical-align: top;
+                    height: 118px;
+                  "
+                >
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Signature and stamp of the consignee</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">ختم وتوقيع المرسل إليه</div>
+                  <!-- large blank area for physical signature/stamp -->
+                  <div style="height: 62px"></div>
+                </td>
+                <!-- BOX 3 : carrier / sender signature & stamp -->
+                <td
+                  style="
+                    width: 33.33%;
+                    border: none;
+                    padding: 5px 6px;
+                    vertical-align: top;
+                    height: 118px;
+                  "
+                >
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Signature/stamp of carrier / sender</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">(31) توقيع وختم الناقل / المرسل</div>
+                  <!-- large blank area for physical signature/stamp -->
+                  <div style="height: 62px"></div>
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>
         <!-- Copies -->
