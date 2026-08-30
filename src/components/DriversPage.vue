@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
@@ -7,6 +7,41 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 const loading = ref(false);
 const errorMessage = ref("");
 const drivers = ref([]);
+
+const searchQuery = ref("");
+const currentPage = ref(1);
+const pageSize = 10;
+
+const filteredDrivers = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return drivers.value;
+  return drivers.value.filter((d) =>
+    (d.name || "").toLowerCase().includes(q)
+  );
+});
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(filteredDrivers.value.length / pageSize))
+);
+
+const pageNumbers = computed(() => {
+  const pages = [];
+  for (let i = 1; i <= totalPages.value; i++) pages.push(i);
+  return pages;
+});
+
+watch(totalPages, (tp) => {
+  if (currentPage.value > tp) currentPage.value = tp;
+});
+
+watch(searchQuery, () => {
+  currentPage.value = 1;
+});
+
+const paginatedDrivers = computed(() => {
+  const start = (currentPage.value - 1) * pageSize;
+  return filteredDrivers.value.slice(start, start + pageSize);
+});
 
 const form = ref({
   _id: null,
@@ -197,6 +232,15 @@ onMounted(() => {
             </button>
           </div>
 
+          <div class="search-row">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="بحث عن السائق..."
+              class="search-input"
+            />
+          </div>
+
           <div v-if="loading" class="status-text">جاري التحميل...</div>
 
           <div v-else class="table-container">
@@ -214,7 +258,7 @@ onMounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="d in drivers" :key="d._id">
+                <tr v-for="d in paginatedDrivers" :key="d._id">
                   <td>{{ d.name }}</td>
                   <td>{{ d.phone }}</td>
                   <td>{{ d.vehicle_no }}</td>
@@ -239,13 +283,39 @@ onMounted(() => {
                     </div>
                   </td>
                 </tr>
-                <tr v-if="drivers.length === 0">
+                <tr v-if="filteredDrivers.length === 0">
                   <td colspan="7" class="table-empty">
                     لا يوجد سائقون مسجّلون.
                   </td>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <div class="pagination" v-if="totalPages > 1">
+            <button
+              class="btn btn--secondary btn--compact"
+              :disabled="currentPage === 1"
+              @click="currentPage--"
+            >
+              السابق
+            </button>
+            <button
+              v-for="p in pageNumbers"
+              :key="p"
+              class="btn btn--compact"
+              :class="{ 'btn--primary': currentPage === p, 'btn--secondary': currentPage !== p }"
+              @click="currentPage = p"
+            >
+              {{ p }}
+            </button>
+            <button
+              class="btn btn--secondary btn--compact"
+              :disabled="currentPage === totalPages"
+              @click="currentPage++"
+            >
+              التالي
+            </button>
           </div>
         </section>
       </div>
@@ -562,6 +632,35 @@ onMounted(() => {
   gap: 6px;
   align-items: center;
   justify-content: flex-start;
+}
+
+/* Search & Pagination */
+.search-row {
+  margin-bottom: 12px;
+}
+.search-input {
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.search-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.12);
+}
+
+.pagination {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 /* Responsive */
