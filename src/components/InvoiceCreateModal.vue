@@ -248,27 +248,28 @@ const filteredDrivers = computed(() => {
   if (!q) return list;
 
   return list.filter((d) => {
-    const vehicle = String(getVehicleNo(d)).toLowerCase();
     const name = String(getDriverName(d)).toLowerCase();
-    return vehicle.includes(q) || name.includes(q);
+    return name.includes(q);
   });
 });
 
-const selectedDrivers = computed(() => {
-  const ids = form.value.driver_ids || [];
-  return (drivers.value || []).filter((d) => ids.includes(d._id));
+const selectedDriver = computed(() => {
+  const id = (form.value.driver_ids || [])[0];
+  if (!id) return null;
+  return (drivers.value || []).find((d) => d._id === id) || null;
 });
 
-function addDriver(d) {
+function selectDriver(d) {
   const id = d?._id;
   if (!id) return;
-  if (!form.value.driver_ids.includes(id)) form.value.driver_ids.push(id);
+  form.value.driver_ids = [id];
   driverQuery.value = "";
   showDriverList.value = false;
 }
 
-function removeDriver(id) {
-  form.value.driver_ids = (form.value.driver_ids || []).filter((x) => x !== id);
+function clearDriver() {
+  form.value.driver_ids = [];
+  driverQuery.value = "";
 }
 
 /* =========================
@@ -361,7 +362,7 @@ function validate() {
     if (!String(e.currency || "").trim())
       return "عملة الفاتورة الإلكترونية مطلوبة";
     if (!(form.value.driver_ids || []).length)
-      return "اكتب رقم السيارة واختر السائق";
+      return "اختر السائق";
   }
 
   return "";
@@ -418,12 +419,12 @@ async function buildPreview() {
     })
     .join("");
 
-  const driverNamesArr = (selectedDrivers.value || [])
-    .map(getDriverName)
-    .filter(Boolean);
-  const vehicleNosArr = (selectedDrivers.value || [])
-    .map(getVehicleNo)
-    .filter(Boolean);
+  const driverNamesArr = selectedDriver.value
+    ? [getDriverName(selectedDriver.value)].filter(Boolean)
+    : [];
+  const vehicleNosArr = selectedDriver.value
+    ? [getVehicleNo(selectedDriver.value)].filter(Boolean)
+    : [];
 
   const esc = (s) =>
     String(s ?? "")
@@ -732,6 +733,54 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                   </div>
                 </div>
               </div>
+
+              <!-- ✅ السائق -->
+              <div class="form-group">
+                <label>السائق</label>
+
+                <div class="chips" v-if="selectedDriver">
+                  <span class="chip">
+                    {{ getDriverName(selectedDriver) }}
+                    <button type="button" class="chip-x" @click="clearDriver">
+                      ×
+                    </button>
+                  </span>
+                </div>
+
+                <input
+                  type="text"
+                  v-model="driverQuery"
+                  placeholder="ابحث عن السائق..."
+                  @focus="showDriverList = true"
+                  @keydown.esc="showDriverList = false"
+                />
+
+                <div class="dropdown" v-if="showDriverList">
+                  <div class="dropdown-item muted" v-if="loadingDrivers">
+                    جاري تحميل السواقين...
+                  </div>
+
+                  <button
+                    v-for="d in filteredDrivers"
+                    :key="d._id"
+                    type="button"
+                    class="dropdown-item"
+                    @click="selectDriver(d)"
+                  >
+                    <div class="dd-row">
+                      <span class="dd-main">{{ getDriverName(d) }}</span>
+                      <span class="dd-sub">{{ getVehicleNo(d) }}</span>
+                    </div>
+                  </button>
+
+                  <div
+                    class="dropdown-item muted"
+                    v-if="!loadingDrivers && filteredDrivers.length === 0"
+                  >
+                    لا يوجد نتائج
+                  </div>
+                </div>
+              </div>
             </template>
 
             <template v-else>
@@ -822,16 +871,12 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
               </div>
 
               <div class="form-group">
-                <label>ابحث برقم السيارة (اللوحة) واختر السائق</label>
+                <label>السائق</label>
 
-                <div class="chips" v-if="selectedDrivers.length">
-                  <span class="chip" v-for="d in selectedDrivers" :key="d._id">
-                    {{ getVehicleNo(d) }} - {{ getDriverName(d) }}
-                    <button
-                      type="button"
-                      class="chip-x"
-                      @click="removeDriver(d._id)"
-                    >
+                <div class="chips" v-if="selectedDriver">
+                  <span class="chip">
+                    {{ getDriverName(selectedDriver) }}
+                    <button type="button" class="chip-x" @click="clearDriver">
                       ×
                     </button>
                   </span>
@@ -840,7 +885,7 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                 <input
                   type="text"
                   v-model="driverQuery"
-                  placeholder="اكتب رقم السيارة للبحث..."
+                  placeholder="ابحث عن السائق..."
                   @focus="showDriverList = true"
                   @keydown.esc="showDriverList = false"
                 />
@@ -855,11 +900,11 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
                     :key="d._id"
                     type="button"
                     class="dropdown-item"
-                    @click="addDriver(d)"
+                    @click="selectDriver(d)"
                   >
                     <div class="dd-row">
-                      <span class="dd-main">{{ getVehicleNo(d) }}</span>
-                      <span class="dd-sub">{{ getDriverName(d) }}</span>
+                      <span class="dd-main">{{ getDriverName(d) }}</span>
+                      <span class="dd-sub">{{ getVehicleNo(d) }}</span>
                     </div>
                   </button>
 
