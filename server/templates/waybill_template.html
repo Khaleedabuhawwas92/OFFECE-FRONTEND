@@ -1071,75 +1071,45 @@
 
         <!-- Signatures -->
         <tr>
+          <!-- LEFT BOX : goods received / consignee signature & stamp -->
           <td
+            class="border-left-2"
             style="
-              width: 33%;
-              border-right: 1px solid #000;
-              padding: 4px 5px;
+              border-right: 1px solid #222;
+              padding: 5px 6px;
               vertical-align: top;
+              height: 118px;
             "
           >
-            <table
-              style="
-                width: 100%;
-                border-collapse: collapse;
-                border: none;
-                font-size: 10px;
-                line-height: 1.35;
-              "
-            >
-              <tr>
-                <td
-                  style="
-                    text-align: left;
-                    font-weight: bold;
-                    border: none;
-                    padding: 0;
-                  "
-                >
-                  Good received in
-                </td>
-                <td
-                  style="
-                    text-align: right;
-                    direction: rtl;
-                    white-space: nowrap;
-                    border: none;
-                    padding: 0;
-                  "
-                >
-                  (32) استلمت البضاعة في
-                </td>
-              </tr>
-              <tr>
-                <td style="text-align: left; border: none; padding: 0">On</td>
-                <td style="text-align: right; direction: rtl; border: none">
-                  تاريخ
-                </td>
-              </tr>
-              <tr>
-                <td style="text-align: left; border: none; padding: 0">
-                  Signature and stamp of the consignee
-                </td>
-                <td style="text-align: right; direction: rtl; border: none">
-                  ختم وتوقيع المرسل إليه
-                </td>
-              </tr>
-              <tr>
-                <td style="text-align: left; border: none; padding: 0">
-                  stamp of the consignee
-                </td>
-                <td style="border: none"></td>
-              </tr>
-            </table>
+            <div class="label-row">
+              <span class="en">Goods received in</span>
+              <span class="ar">(32) استلمت البضاعة في</span>
+            </div>
+            <div class="label-row">
+              <span class="en">On</span>
+              <span class="ar">تاريخ</span>
+            </div>
+            <div class="label-row">
+              <span class="en">Signature and stamp of the consignee</span>
+              <span class="ar">ختم وتوقيع المرسل إليه</span>
+            </div>
+            <!-- large blank area for physical signature/stamp -->
+            <div style="height: 56px"></div>
           </td>
-
-          <td class="border-right-2">
+          <!-- RIGHT BOX : carrier / sender signature & stamp -->
+          <td
+            class="border-right-2"
+            style="padding: 5px 6px; vertical-align: top; height: 118px"
+          >
             <div class="label-row">
               <span class="en">Signature and stamp</span>
-              <span class="ar">(31) ختم وتوقيع الشاحن / المرسل</span>
+              <span class="ar">(31) توقيع وختم الناقل / المرسل</span>
             </div>
-            <div class="value small">توقيع وختم الناقل</div>
+            <div class="label-row">
+              <span class="en">Signature/stamp of carrier / sender</span>
+            </div>
+            <!-- large blank area for physical signature/stamp -->
+            <div style="height: 74px"></div>
           </td>
         </tr>
 
