@@ -498,24 +498,28 @@ watch([year, month], () => {
                 </td>
 
                 <!-- ✅ المركبات تحت بعض -->
-                <td class="driver-cell" dir="ltr">
-                  <div
-                    v-for="(v, i) in getWaybillVehiclesOnly(wb)"
-                    :key="i"
-                    class="vehicle-no"
-                  >
-                    {{ v }}
+                <td dir="ltr">
+                  <div class="driver-cell">
+                    <div
+                      v-for="(v, i) in getWaybillVehiclesOnly(wb)"
+                      :key="i"
+                      class="vehicle-no"
+                    >
+                      {{ v }}
+                    </div>
                   </div>
                 </td>
 
                 <!-- ✅ السواقين تحت بعض -->
-                <td class="driver-cell">
-                  <div
-                    v-for="(n, i) in getWaybillDriversOnly(wb)"
-                    :key="i"
-                    class="driver-name"
-                  >
-                    {{ n }}
+                <td>
+                  <div class="driver-cell">
+                    <div
+                      v-for="(n, i) in getWaybillDriversOnly(wb)"
+                      :key="i"
+                      class="driver-name"
+                    >
+                      {{ n }}
+                    </div>
                   </div>
                 </td>
               </tr>
