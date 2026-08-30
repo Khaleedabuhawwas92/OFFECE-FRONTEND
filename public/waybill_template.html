@@ -1109,5 +1109,24 @@
         </tr>
       </table>
     </div>
+    <script>
+      // Display-only fallback: show 0 in empty goods-table data cells
+      document.addEventListener("DOMContentLoaded", function () {
+        var tables = document.querySelectorAll("table");
+        for (var k = 0; k < tables.length; k++) {
+          var t = tables[k];
+          if (!t.textContent || t.textContent.indexOf("الأرقام والعلامات") === -1)
+            continue;
+          for (var i = 1; i < t.rows.length; i++) {
+            var tds = t.rows[i].cells;
+            for (var j = 0; j < tds.length; j++) {
+              var txt = tds[j].textContent.replace(/\s+/g, "");
+              if (!txt || /^\{\{[^}]*\}\}$/.test(txt))
+                tds[j].textContent = "0";
+            }
+          }
+        }
+      });
+    </script>
   </body>
 </html>
