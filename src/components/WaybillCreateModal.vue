@@ -34,6 +34,10 @@ const showDriverList = ref(false);
 const showConsignorList = ref(false);
 const showConsigneeList = ref(false);
 
+const goodsNatureOptions = ref([]);
+const goodsNatureOpenIndex = ref(-1);
+const goodsNatureQuery = ref("");
+
 const selectedConsignor = ref(null);
 const selectedConsignee = ref(null);
 
@@ -241,6 +245,52 @@ async function fetchConsignees() {
   }
 }
 
+async function fetchGoodsNatures() {
+  try {
+    const res = await axios.get(`${props.apiBase}/api/goods-natures`);
+    const list = Array.isArray(res.data) ? res.data : [];
+    // Ensure initial options exist even if DB is empty
+    const initial = ["سيارات ركوب وشحن رباعية", "علب بلاستيكية", "مواد إنشائية"];
+    const set = new Set([...initial, ...list]);
+    goodsNatureOptions.value = Array.from(set);
+  } catch (e) {
+    console.error("goods natures error:", e);
+    goodsNatureOptions.value = ["سيارات ركوب وشحن رباعية", "علب بلاستيكية", "مواد إنشائية"];
+  }
+}
+
+const filteredGoodsNatures = computed(() => {
+  const q = String(goodsNatureQuery.value || "").trim();
+  if (!q) return goodsNatureOptions.value;
+  return goodsNatureOptions.value.filter((n) => n.includes(q));
+});
+
+function isNewGoodsNature() {
+  const q = String(goodsNatureQuery.value || "").trim();
+  if (!q) return false;
+  return !goodsNatureOptions.value.some((n) => n === q);
+}
+
+function selectGoodsNature(i, name) {
+  form.value.goodsItems[i].GOODS_NATURE = name;
+  goodsNatureOpenIndex.value = -1;
+  goodsNatureQuery.value = "";
+}
+
+async function addGoodsNature(i) {
+  const name = String(goodsNatureQuery.value || "").trim();
+  if (!name) return;
+  try {
+    await axios.post(`${props.apiBase}/api/goods-natures`, { name });
+    if (!goodsNatureOptions.value.includes(name)) {
+      goodsNatureOptions.value.push(name);
+    }
+    selectGoodsNature(i, name);
+  } catch (e) {
+    console.error("add goods nature error:", e);
+  }
+}
+
 /* =========================
    Serial (peek only)
 ========================= */
@@ -261,8 +311,13 @@ async function fetchNextSerial() {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchDrivers(), fetchConsignors(), fetchConsignees()]);
-  await fetchNextSerial(); // ✅ عرض الرقم فقط (peek)
+  await Promise.all([
+    fetchDrivers(),
+    fetchConsignors(),
+    fetchConsignees(),
+    fetchGoodsNatures(),
+  ]);
+  await fetchNextSerial();
 });
 
 watch(
@@ -1098,9 +1153,41 @@ async function saveWaybill() {
             :key="i"
             style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: end; margin-bottom: 8px;"
           >
-            <div class="field">
+            <div class="field" style="position: relative;">
               <label>طبيعة البضاعة</label>
-              <input v-model="g.GOODS_NATURE" class="input" />
+              <input
+                :value="g.GOODS_NATURE"
+                class="input"
+                @focus="goodsNatureOpenIndex = i; goodsNatureQuery = g.GOODS_NATURE || ''"
+                @input="g.GOODS_NATURE = $event.target.value; goodsNatureQuery = $event.target.value"
+                @keydown.esc="goodsNatureOpenIndex = -1"
+              />
+              <div class="dropdown" v-if="goodsNatureOpenIndex === i" style="position: absolute; left: 0; right: 0; z-index: 20; background: #fff;">
+                <div
+                  v-for="n in filteredGoodsNatures"
+                  :key="n"
+                  class="dropdown-item"
+                  type="button"
+                  @click="selectGoodsNature(i, n)"
+                >
+                  {{ n }}
+                </div>
+                <div
+                  v-if="isNewGoodsNature()"
+                  class="dropdown-item"
+                  style="color: #1976d2; font-weight: 700;"
+                  type="button"
+                  @click="addGoodsNature(i)"
+                >
+                  ➕ إضافة "{{ goodsNatureQuery }}"
+                </div>
+                <div
+                  class="dropdown-item muted"
+                  v-if="filteredGoodsNatures.length === 0 && !isNewGoodsNature()"
+                >
+                  لا توجد نتائج
+                </div>
+              </div>
             </div>
             <div class="field">
               <label>الرمز الجمركي</label>

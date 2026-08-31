@@ -1745,6 +1745,34 @@ app.delete("/api/consignees/:id", async (req, res) => {
   }
 });
 
+/* ======================= GOODS NATURES ======================= */
+app.get("/api/goods-natures", async (req, res) => {
+  try {
+    const col = mongoose.connection.collection("goods_natures");
+    const docs = await col.find({}).sort({ name: 1 }).toArray();
+    const names = docs.map((d) => d.name || "").filter(Boolean);
+    res.json(names);
+  } catch (err) {
+    console.error("Error getting goods natures:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/goods-natures", async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Name required" });
+    const col = mongoose.connection.collection("goods_natures");
+    const existing = await col.findOne({ name });
+    if (existing) return res.json(name);
+    await col.insertOne({ name, created_at: new Date() });
+    res.status(201).json(name);
+  } catch (err) {
+    console.error("Error creating goods nature:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 /* ======================= PDF (Waybill) ======================= */
 function fillTemplateString(template, obj) {
   return template.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (match, key) => {
