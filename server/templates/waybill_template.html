@@ -28,12 +28,14 @@
       /* ✅ حجم الصفحة = مساحة الطباعة بعد @page margin */
       .page {
         width: 202mm; /* 210 - 8 */
-        height: 297mm;
+        height: 289mm;
         padding: 2mm 4mm 12mm; /* كافي لسطر واحد */
         border: 1px solid #000;
         position: relative;
         box-sizing: border-box;
-        overflow: hidden;
+        overflow: visible;
+        page-break-after: avoid;
+        break-after: avoid;
       }
 
       /* ====== HEADER ====== */
@@ -166,11 +168,16 @@
       }
 
       @media print {
-        body {
+        html, body {
           margin: 0;
+          padding: 0;
+          height: auto;
         }
         .page {
           border: none;
+          page-break-after: avoid;
+          break-after: avoid;
+          overflow: visible;
         }
       }
     </style>
