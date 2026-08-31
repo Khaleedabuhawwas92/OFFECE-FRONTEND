@@ -470,7 +470,7 @@ async function saveWaybill() {
   border-radius: 10px;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 

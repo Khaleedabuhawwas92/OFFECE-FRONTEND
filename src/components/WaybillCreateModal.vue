@@ -1247,7 +1247,7 @@ async function saveWaybill() {
 }
 
 .modal {
-  width: min(1220px, 96vw);
+  width: min(1340px, 96vw);
   max-height: 94vh;
   background: #f4f6f9;
   border-radius: 14px;
