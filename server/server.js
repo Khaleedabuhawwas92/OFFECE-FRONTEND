@@ -1772,6 +1772,39 @@ function generateWaybillHtmlFromTemplateNode(waybillDoc) {
   }
   const raw = fs.readFileSync(templatePath, "utf-8");
   const plain = waybillDoc.toObject ? waybillDoc.toObject() : waybillDoc;
+
+  const items = plain.goodsItems || [];
+  const cell = (v) => String(v ?? "").trim() || "0";
+  if (items.length) {
+    plain.GOODS_ROWS = items
+      .map(
+        (it, idx) => `
+    <tr>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;height:24px;text-align:center;" class="val-center"></td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(it.GROSS_WEIGHT)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(it.TARIFF_CODE)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(it.GOODS_NATURE)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(it.PACKING_METHOD)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(it.PACKAGES_COUNT)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(it.MARKS)}</td>
+      <td style="border-top:1px solid #000;text-align:center;" class="val-center">${idx + 1}</td>
+    </tr>`,
+      )
+      .join("");
+  } else {
+    plain.GOODS_ROWS = `
+    <tr>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;height:24px;text-align:center;" class="val-center"></td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(plain.GROSS_WEIGHT)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(plain.TARIFF_CODE)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(plain.GOODS_NATURE)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(plain.PACKING_METHOD)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(plain.PACKAGES_COUNT)}</td>
+      <td style="border-top:1px solid #000;border-right:1px solid #000;text-align:center;" class="val-center">${cell(plain.MARKS)}</td>
+      <td style="border-top:1px solid #000;text-align:center;" class="val-center">1</td>
+    </tr>`;
+  }
+
   return fillTemplateString(raw, plain);
 }
 
