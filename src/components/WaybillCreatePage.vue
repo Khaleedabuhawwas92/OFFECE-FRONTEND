@@ -12,6 +12,7 @@ const openPreview = ref(false);
 const previewHtml = ref("");
 const tplCache = ref(null);
 const modalRef = ref(null);
+const showStampSignature = ref(false);
 
 // ✅ نموذج البوليصة (نفس أسماء placeholders)
 const form = ref({
@@ -101,7 +102,15 @@ async function buildPreview() {
     }
 
     // ✅ مهم: اعمل render بعد ما تخلص تحميل
-    previewHtml.value = fillTemplate(tplCache.value, form.value);
+    previewHtml.value = fillTemplate(tplCache.value, {
+      ...form.value,
+      STAMP_SIGNATURE_BLOCK: showStampSignature.value
+        ? `<div style="position:relative;width:100%;height:42px;margin-top:2px;display:flex;justify-content:center;align-items:center;">
+             <img src="./images/company-stamp.png" alt="stamp" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);height:38px;width:auto;object-fit:contain;opacity:0.92;">
+             <img src="./images/company-signature.png" alt="signature" style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);height:20px;width:auto;object-fit:contain;z-index:2;">
+           </div>`
+        : '<div style="height:14px"></div>',
+    });
     openPreview.value = true;
   } finally {
     loading.value = false;
@@ -149,6 +158,10 @@ async function saveWaybill() {
       </div>
 
       <div class="top-actions">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">
+          <input type="checkbox" v-model="showStampSignature" style="width:16px;height:16px;cursor:pointer;" />
+          إضافة الختم والتوقيع
+        </label>
         <button class="btn btn--secondary" type="button" @click="buildPreview">
           👁 معاينة
         </button>

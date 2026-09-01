@@ -14,6 +14,7 @@ const openPreview = ref(false);
 const previewHtml = ref("");
 const invoiceTemplateCache = ref(null);
 const modalRef = ref(null);
+const showStampSignature = ref(false);
 
 /* =========================
    E-Invoicing (JoFotara) ✅ NEW
@@ -454,6 +455,12 @@ async function buildPreview() {
     FILS: parts.fils,
     TOTAL_DINAR: parts.dinar,
     TOTAL_FILS: parts.fils,
+    STAMP_SIGNATURE_BLOCK: showStampSignature.value
+      ? `<div style="position:relative;width:100%;height:44px;margin-top:4px;display:flex;justify-content:center;align-items:center;">
+           <img src="./images/company-stamp.png" alt="stamp" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);height:40px;width:auto;object-fit:contain;opacity:0.92;">
+           <img src="./images/company-signature.png" alt="signature" style="position:absolute;bottom:3px;left:50%;transform:translateX(-50%);height:22px;width:auto;object-fit:contain;z-index:2;">
+         </div>`
+      : "",
   };
 
   previewHtml.value = fillTemplate(invoiceTemplateCache.value, data);
@@ -633,6 +640,10 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
         </div>
 
         <div class="head-actions">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">
+            <input type="checkbox" v-model="showStampSignature" style="width:16px;height:16px;cursor:pointer;" />
+            إضافة الختم والتوقيع
+          </label>
           <button
             class="btn btn--secondary"
             type="button"

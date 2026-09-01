@@ -23,16 +23,19 @@
       }
       .page {
         width: 202mm; /* 210 - 8 */
-        height: 289mm; /* 297 - 8 */
-        padding: 2mm 4mm 4mm;
+        height: 289mm;
+        padding: 0mm 3mm 2mm;
         border: 1px solid #222;
-        overflow: hidden;
+        box-sizing: border-box;
+        overflow: visible;
+        page-break-after: avoid;
+        break-after: avoid;
       }
       .header-top {
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        margin-bottom: 2px;
+        margin-bottom: 1px;
         font-size: 11px;
         font-weight: bold;
       }
@@ -53,25 +56,25 @@
       .besm {
         font-size: 18px;
         font-weight: bold;
-        margin-top: -6px;
-        margin-bottom: 2px;
+        margin-top: -8px;
+        margin-bottom: 1px;
       }
       .logo-img {
-        width: 100px;
-        height: 100px;
+        width: 85px;
+        height: 85px;
         object-fit: contain;
         display: block;
-        margin: 0 auto 2px;
+        margin: 0 auto 1px;
       }
       .header-center-line {
         text-align: center;
         font-weight: bold;
-        margin: 2px 0 1px;
+        margin: 1px 0 1px;
         font-size: 15px;
       }
       .header-title {
         text-align: center;
-        margin-bottom: 4px;
+        margin-bottom: 1px;
         font-weight: bold;
         font-size: 13px;
       }
@@ -82,9 +85,9 @@
       }
       table.waybill td {
         border: 1px solid #222;
-        padding: 4px 5px;
+        padding: 2px 4px;
         vertical-align: top;
-        line-height: 1.35;
+        line-height: 1.25;
         white-space: normal;
         overflow-wrap: anywhere;
         word-break: break-word;
@@ -138,11 +141,16 @@
         font-size: 11px;
       }
       @media print {
-        body {
+        html, body {
           margin: 0;
+          padding: 0;
+          height: auto;
         }
         .page {
           border: none;
+          page-break-after: avoid;
+          break-after: avoid;
+          overflow: visible;
         }
       }
     </style>
@@ -562,12 +570,14 @@
               "
             >
               <colgroup>
-                <col style="width: 16.6%" />
-                <col style="width: 16.6%" />
-                <col style="width: 16.6%" />
-                <col style="width: 16.6%" />
-                <col style="width: 16.6%" />
-                <col style="width: 16.6%" />
+                <col style="width: 10%" />
+                <col style="width: 12%" />
+                <col style="width: 11%" />
+                <col style="width: 24%" />
+                <col style="width: 13%" />
+                <col style="width: 11%" />
+                <col style="width: 13%" />
+                <col style="width: 6%" />
               </colgroup>
               <tr>
                 <td
@@ -577,18 +587,8 @@
                     text-align: center;
                   "
                 >
-                  <div class="ar small">(18) طبيعة البضاعة</div>
-                  <div class="en">Nature of Goods</div>
-                </td>
-                <td
-                  style="
-                    border-right: 1px solid #222;
-                    padding: 3px 4px;
-                    text-align: center;
-                  "
-                >
-                  <div class="ar small">(19)قيمة البضاعة</div>
-                  <div class="en">Tariff Code</div>
+                  <div class="ar small">(21) الحجم</div>
+                  <div class="en">V/m3</div>
                 </td>
                 <td
                   style="
@@ -607,8 +607,28 @@
                     text-align: center;
                   "
                 >
-                  <div class="ar small">(15) الأرقام والعلامات</div>
-                  <div class="en">Marks and No's</div>
+                  <div class="ar small">(19) رقم التعريفة</div>
+                  <div class="en">Tariff Code</div>
+                </td>
+                <td
+                  style="
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
+                    text-align: center;
+                  "
+                >
+                  <div class="ar small">(18) طبيعة البضاعة</div>
+                  <div class="en">Nature of Goods</div>
+                </td>
+                <td
+                  style="
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
+                    text-align: center;
+                  "
+                >
+                  <div class="ar small">(17) نوع التغليف</div>
+                  <div class="en">Method of Packing</div>
                 </td>
                 <td
                   style="
@@ -620,29 +640,38 @@
                   <div class="ar small">(16) عدد الطرود</div>
                   <div class="en">No. of Packages</div>
                 </td>
+                <td
+                  style="
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
+                    text-align: center;
+                  "
+                >
+                  <div class="ar small">(15) الأرقام والعلامات</div>
+                  <div class="en">Marks and No's</div>
+                </td>
                 <td style="padding: 3px 4px; text-align: center">
-                  <div class="ar small">(17) نوع التغليف</div>
-                  <div class="en">Method of Packing</div>
+                  <div class="ar small">الرقم</div>
                 </td>
               </tr>
               {{GOODS_ROWS}}
+              <!-- Demurrage at loading -->
+              <tr>
+                <td colspan="4" class="border-left-2" style="height: 28px">
+                  <div class="label-row">
+                    <span class="en">Demurrage at loading</span
+                    ><span class="ar">(23) مدة المكوث عند التحميل</span>
+                  </div>
+                  <div class="value val-center">{{DEMURRAGE_LOADING}}</div>
+                </td>
+                <td colspan="4" class="border-right-2" style="height: 28px">
+                  <div class="label-row">
+                    <span class="en">Dangerous Goods Instruction</span
+                    ><span class="ar">(22) تعليمات مواد خطرة</span>
+                  </div>
+                </td>
+              </tr>
             </table>
-          </td>
-        </tr>
-        <!-- Demurrage at loading -->
-        <tr>
-          <td class="border-left-2" style="height: 28px">
-            <div class="label-row">
-              <span class="en">Demurrage at loading</span
-              ><span class="ar">(23) مدة المكوث عند التحميل</span>
-            </div>
-            <div class="value val-center">{{DEMURRAGE_LOADING}}</div>
-          </td>
-          <td class="border-right-2" style="height: 28px">
-            <div class="label-row">
-              <span class="en">Dangerous Goods Instruction</span
-              ><span class="ar">(22) تعليمات مواد خطرة</span>
-            </div>
           </td>
         </tr>
         <!-- ✅ Demurrage at Discharge + Charges (مطابق للصورة) -->
@@ -888,7 +917,7 @@
                 <td
                   style="
                     border-right: 1px solid #222;
-                    padding: 4px 5px;
+                    padding: 2px 4px;
                     vertical-align: top;
                   "
                 >
@@ -896,7 +925,7 @@
                     style="
                       display: flex;
                       justify-content: space-between;
-                      margin-bottom: 3px;
+                      margin-bottom: 1px;
                     "
                   >
                     <span style="font-size: 11px; font-weight: 600"
@@ -923,7 +952,7 @@
                 <td
                   style="
                     border-right: 1px solid #222;
-                    padding: 4px 5px;
+                    padding: 2px 4px;
                     vertical-align: top;
                   "
                 >
@@ -970,7 +999,7 @@
                   style="
                     border-bottom: 1px solid #222;
                     padding: 4px 5px;
-                    height: 55px;
+                    height: 38px;
                   "
                 >
                   <div class="label-row">
@@ -986,7 +1015,7 @@
                 </td>
               </tr>
               <tr>
-                <td style="padding: 5px 4px; height: 70px">
+                <td style="padding: 5px 4px; height: 40px">
                   <div class="label-row">
                     <span class="en">Cash on Delivery</span
                     ><span class="ar">(29) الدفع عند التسليم</span>
@@ -1004,53 +1033,77 @@
         </tr>
         <!-- Signatures -->
         <tr>
-          <!-- LEFT BOX : goods received / consignee signature & stamp -->
           <td
-            class="border-left-2"
-            style="
-              border-right: 1px solid #222;
-              padding: 5px 6px;
-              vertical-align: top;
-              height: 118px;
-            "
+            colspan="2"
+            class="border-left-2 border-right-2"
+            style="padding: 0"
           >
-            <div class="label-row">
-              <span class="en">Goods received in</span>
-              <span class="ar">(32) استلمت البضاعة في</span>
-            </div>
-            <div class="label-row">
-              <span class="en">On</span>
-              <span class="ar">تاريخ</span>
-            </div>
-            <div class="label-row">
-              <span class="en">Signature and stamp of the consignee</span>
-              <span class="ar">ختم وتوقيع المرسل إليه</span>
-            </div>
-            <!-- large blank area for physical signature/stamp -->
-            <div style="height: 56px"></div>
-          </td>
-          <!-- RIGHT BOX : carrier / sender signature & stamp -->
-          <td
-            class="border-right-2"
-            style="padding: 5px 6px; vertical-align: top; height: 118px"
-          >
-            <div class="label-row">
-              <span class="en">Signature and stamp</span>
-              <span class="ar">(31) توقيع وختم الناقل / المرسل</span>
-            </div>
-            <div class="label-row">
-              <span class="en">Signature/stamp of carrier / sender</span>
-            </div>
-            <!-- large blank area for physical signature/stamp -->
-            <div style="height: 74px"></div>
+            <table
+              style="
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                border: none;
+              "
+            >
+              <tr>
+                <!-- BOX 1 : goods received -->
+                <td
+                  style="
+                    width: 33.33%;
+                    border: none;
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
+                    vertical-align: top;
+                    height: 54px;
+                  "
+                >
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Goods received in</div>
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">On</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">(32) استلمت البضاعة في</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">تاريخ</div>
+                </td>
+                <!-- BOX 2 : consignee signature & stamp -->
+                <td
+                  style="
+                    width: 33.33%;
+                    border: none;
+                    border-right: 1px solid #222;
+                    padding: 3px 4px;
+                    vertical-align: top;
+                    height: 54px;
+                  "
+                >
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Signature and stamp of the consignee</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">ختم وتوقيع المرسل إليه</div>
+                  <!-- large blank area for physical signature/stamp -->
+                  <div style="height: 14px"></div>
+                </td>
+                <!-- BOX 3 : carrier / sender signature & stamp -->
+                <td
+                  style="
+                    width: 33.33%;
+                    border: none;
+                    padding: 3px 4px;
+                    vertical-align: top;
+                    height: 54px;
+                  "
+                >
+                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Signature/stamp of carrier / sender</div>
+                  <div style="font-weight: 600; text-align: right; direction: rtl">(31) توقيع وختم الناقل / المرسل</div>
+                  <!-- large blank area for physical signature/stamp -->
+                  {{STAMP_SIGNATURE_BLOCK}}
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>
         <!-- Copies -->
         <tr>
           <td
             colspan="2"
-            class="border-left-2 border-right-2 border-bottom-2"
-            style="height: 22px"
+            class="border-left-2 border-right-2 border-top-2 border-bottom-2"
+            style="height: 18px"
           >
             <div class="label-row">
               <span class="en"
@@ -1064,5 +1117,24 @@
         </tr>
       </table>
     </div>
+    <script>
+      // Display-only fallback: show 0 in empty goods-table data cells
+      document.addEventListener("DOMContentLoaded", function () {
+        var tables = document.querySelectorAll("table");
+        for (var k = 0; k < tables.length; k++) {
+          var t = tables[k];
+          if (!t.textContent || t.textContent.indexOf("الأرقام والعلامات") === -1)
+            continue;
+          for (var i = 1; i < t.rows.length; i++) {
+            var tds = t.rows[i].cells;
+            for (var j = 0; j < tds.length; j++) {
+              var txt = tds[j].textContent.replace(/\s+/g, "");
+              if (!txt || /^\{\{[^}]*\}\}$/.test(txt))
+                tds[j].textContent = "0";
+            }
+          }
+        }
+      });
+    </script>
   </body>
 </html>
