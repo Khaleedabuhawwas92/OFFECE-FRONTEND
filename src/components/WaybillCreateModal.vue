@@ -759,7 +759,7 @@ async function saveWaybill() {
     syncGoodsItemsToLegacy();
 
     // ✅ لا تحذف SERIAL_NO (لو موجود) — والسيرفر رح يقرر النهائي
-    const payload = { ...form.value };
+    const payload = { ...form.value, showStampSignature: showStampSignature.value };
 
     const { data } = await axios.post(`${props.apiBase}/api/waybills`, payload);
 

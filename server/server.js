@@ -1849,7 +1849,8 @@ app.get("/api/waybills/:id/regenerate-pdf", async (req, res) => {
     const wb = await Waybill.findById(req.params.id);
     if (!wb) return res.status(404).json({ error: "Waybill not found" });
 
-    const showStamp = req.query.showStampSignature === "true";
+    const hasExplicit = Object.prototype.hasOwnProperty.call(req.query, "showStampSignature");
+    const showStamp = hasExplicit ? req.query.showStampSignature === "true" : (wb.showStampSignature === true);
     const html = generateWaybillHtmlFromTemplateNode(wb, { showStampSignature: showStamp });
 
     const outDir = path.join(__dirname, "forms", "waybills");
@@ -1889,7 +1890,8 @@ app.get("/api/waybills/:id/preview", async (req, res) => {
   try {
     const wb = await Waybill.findById(req.params.id);
     if (!wb) return res.status(404).send("Waybill not found");
-    const showStamp = req.query.showStampSignature === "true";
+    const hasExplicit = Object.prototype.hasOwnProperty.call(req.query, "showStampSignature");
+    const showStamp = hasExplicit ? req.query.showStampSignature === "true" : (wb.showStampSignature === true);
     const html = generateWaybillHtmlFromTemplateNode(wb, { showStampSignature: showStamp });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);

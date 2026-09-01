@@ -135,7 +135,7 @@ async function saveWaybill() {
     // ✅ سكّر أي معاينة مفتوحة قبل الحفظ
     openPreview.value = false;
 
-    await axios.post(`${API_BASE}/api/waybills`, form.value);
+    await axios.post(`${API_BASE}/api/waybills`, { ...form.value, showStampSignature: showStampSignature.value });
 
     // ✅ بدّل alert برسالة داخل الصفحة إذا بتحب (أريح للإلكترون)
     alert("✅ تم حفظ البوليصة");

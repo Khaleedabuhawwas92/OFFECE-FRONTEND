@@ -342,6 +342,8 @@ async function fetchWaybill() {
       DEMURRAGE_LOADING: wb.DEMURRAGE_LOADING || "",
     };
 
+    showStampSignature.value = wb.showStampSignature === true;
+
     // ✅ رجّع السواقين من DRIVER1..50
     const arr = [];
     for (let i = 1; i <= 50; i++) {
@@ -471,6 +473,7 @@ function buildSavePayload() {
   payload.VEHICLE_NO = cleanedRows[0]?.VEHICLE_NO || "";
   payload.VEHICLE_REGION = cleanedRows[0]?.VEHICLE_REGION || "";
   payload.DRIVER_NAME = cleanedRows[0]?.DRIVER_NAME || "";
+  payload.showStampSignature = showStampSignature.value === true;
 
   return payload;
 }
