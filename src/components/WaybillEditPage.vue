@@ -13,6 +13,7 @@ const loading = ref(false);
 const saving = ref(false);
 const errorMessage = ref("");
 const successMessage = ref("");
+const showStampSignature = ref(false);
 
 /* =========================
    DB Lists
@@ -526,8 +527,9 @@ async function deleteCurrentWaybill() {
 }
 
 function generatePdf() {
+  const qs = showStampSignature.value ? "?showStampSignature=true" : "";
   window.open(
-    `${API_BASE}/api/waybills/${waybillId.value}/regenerate-pdf`,
+    `${API_BASE}/api/waybills/${waybillId.value}/regenerate-pdf${qs}`,
     "_blank",
   );
 }
@@ -601,6 +603,10 @@ onMounted(async () => {
         </div>
 
         <div class="header-actions">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">
+            <input type="checkbox" v-model="showStampSignature" style="width:16px;height:16px;cursor:pointer;" />
+            إضافة الختم والتوقيع
+          </label>
           <button class="btn btn--ghost" type="button" @click="goBack">
             ⬅ رجوع
           </button>
@@ -972,6 +978,10 @@ onMounted(async () => {
         </div>
 
         <div class="footer-actions">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">
+            <input type="checkbox" v-model="showStampSignature" style="width:16px;height:16px;cursor:pointer;" />
+            إضافة الختم والتوقيع
+          </label>
           <button class="btn btn--ghost" type="button" @click="goBack">
             ⬅ رجوع
           </button>

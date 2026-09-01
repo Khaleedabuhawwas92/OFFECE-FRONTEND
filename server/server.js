@@ -1785,7 +1785,7 @@ function fillTemplateString(template, obj) {
   });
 }
 
-function generateWaybillHtmlFromTemplateNode(waybillDoc) {
+function generateWaybillHtmlFromTemplateNode(waybillDoc, options = {}) {
   const templatePath = path.join(
     __dirname,
     "templates",
@@ -1833,6 +1833,14 @@ function generateWaybillHtmlFromTemplateNode(waybillDoc) {
     </tr>`;
   }
 
+  const showStamp = options?.showStampSignature === true;
+  plain.STAMP_SIGNATURE_BLOCK = showStamp
+    ? `<div style="position:relative;width:100%;height:56px;margin-top:2px;">
+         <img src="./images/company-stamp.png" alt="stamp" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:100px;height:55px;object-fit:contain;opacity:0.92;">
+         <img src="./images/company-signature.png" alt="signature" style="position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:170px;height:35px;object-fit:contain;z-index:2;">
+       </div>`
+    : '<div style="height:14px"></div>';
+
   return fillTemplateString(raw, plain);
 }
 
@@ -1841,7 +1849,8 @@ app.get("/api/waybills/:id/regenerate-pdf", async (req, res) => {
     const wb = await Waybill.findById(req.params.id);
     if (!wb) return res.status(404).json({ error: "Waybill not found" });
 
-    const html = generateWaybillHtmlFromTemplateNode(wb);
+    const showStamp = req.query.showStampSignature === "true";
+    const html = generateWaybillHtmlFromTemplateNode(wb, { showStampSignature: showStamp });
 
     const outDir = path.join(__dirname, "forms", "waybills");
     fs.mkdirSync(outDir, { recursive: true });
@@ -1880,7 +1889,8 @@ app.get("/api/waybills/:id/preview", async (req, res) => {
   try {
     const wb = await Waybill.findById(req.params.id);
     if (!wb) return res.status(404).send("Waybill not found");
-    const html = generateWaybillHtmlFromTemplateNode(wb);
+    const showStamp = req.query.showStampSignature === "true";
+    const html = generateWaybillHtmlFromTemplateNode(wb, { showStampSignature: showStamp });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
   } catch (err) {
