@@ -721,9 +721,9 @@ async function buildPreview() {
       VEHICLE_REGION: textToHtmlLines(form.value.VEHICLE_REGION),
       GOODS_ROWS: buildGoodsRowsHtml(),
       STAMP_SIGNATURE_BLOCK: showStampSignature.value
-        ? `<div style="position:relative;width:220px;height:70px;margin:0 auto;overflow:visible;">
-             <img src="/images/company-stamp.png" alt="stamp" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:110px;height:auto;opacity:0.92;">
-             <img src="/images/company-signature.png" alt="signature" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:200px;height:auto;z-index:2;">
+        ? `<div style="position:relative;width:300px;height:110px;margin:0 auto;overflow:visible;">
+             <img src="/images/company-stamp.png" alt="stamp" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:150px;height:auto;max-width:none;opacity:0.92;">
+             <img src="/images/company-signature.png" alt="signature" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:280px;height:auto;max-width:none;z-index:2;">
            </div>`
         : '<div style="height:14px"></div>',
     };
