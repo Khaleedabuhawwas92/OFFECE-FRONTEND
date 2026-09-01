@@ -1835,9 +1835,11 @@ function generateWaybillHtmlFromTemplateNode(waybillDoc, options = {}) {
 
   const showStamp = options?.showStampSignature === true;
   plain.STAMP_SIGNATURE_BLOCK = showStamp
-    ? `<div style="position:relative;width:300px;height:110px;margin:0 auto;overflow:visible;">
-         <img src="/images/company-stamp.png" alt="stamp" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:150px;height:auto;max-width:none;opacity:0.92;">
-         <img src="/images/company-signature.png" alt="signature" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:280px;height:auto;max-width:none;z-index:2;">
+    ? `<div style="height:14px;position:relative;overflow:visible;">
+         <div style="position:absolute;width:300px;height:0;left:50%;top:50%;transform:translate(-50%,-50%);overflow:visible;z-index:5;pointer-events:none;">
+           <img src="/images/company-stamp.png" alt="stamp" style="position:absolute;width:150px;height:auto;left:50%;top:0;transform:translate(-50%,-50%);max-width:none;opacity:0.92;">
+           <img src="/images/company-signature.png" alt="signature" style="position:absolute;width:280px;height:auto;left:50%;top:0;transform:translate(-50%,-50%);z-index:2;max-width:none;">
+         </div>
        </div>`
     : '<div style="height:14px"></div>';
 
