@@ -106,8 +106,8 @@ async function buildPreview() {
       ...form.value,
       STAMP_SIGNATURE_BLOCK: showStampSignature.value
         ? `<div style="position:relative;width:100%;height:56px;margin-top:2px;">
-             <img src="./images/company-stamp.png" alt="stamp" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:100px;height:55px;object-fit:contain;opacity:0.92;">
-             <img src="./images/company-signature.png" alt="signature" style="position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:170px;height:35px;object-fit:contain;z-index:2;">
+             <img src="/images/company-stamp.png" alt="stamp" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:100px;height:55px;object-fit:contain;opacity:0.92;">
+             <img src="/images/company-signature.png" alt="signature" style="position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:170px;height:35px;object-fit:contain;z-index:2;">
            </div>`
         : '<div style="height:14px"></div>',
     });
