@@ -852,7 +852,9 @@ app.get("/api/reports/office-commission", async (req, res) => {
 
       if (commissionItems.length === 0 && fixedItems.length === 0) continue;
 
-      // ✅ 10 JOD ثابتة مرة واحدة لكل فاتورة مطابقة حتى لو تكرر الوصف
+      // ✅ بنود "عمولة مكتب": تُجمع قيمتها الفعلية
+      // ✅ بند "50 دولار اصدار بوليصة شحن": 10 JOD ثابتة مرة واحدة فقط لكل فاتورة (بدون قيمته 50)
+      // ✅ باقي البنود العادية: لا تدخل في عمولة المكتب (0)
       let totalCommission = commissionItems.reduce(
         (sum, item) => sum + resolveAmount(item),
         0,
