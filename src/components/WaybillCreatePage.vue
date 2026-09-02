@@ -72,10 +72,21 @@ const form = ref({
   DEDUCTIONS: "",
 });
 
+// ✅ يوحّد فقرة الملاحظات: يحوّل الأسطر اليدوية لمسافات ويبقي الفقرة المفصولة بسطر فارغ
+function normalizeNotesText(v) {
+  return String(v ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n[ \t]*\n+/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("<br>");
+}
+
 function fillTemplate(template, obj) {
   return template.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, key) => {
     const v =
       obj[key] ?? obj[key.toUpperCase()] ?? obj[key.toLowerCase()] ?? "";
+    if (key === "CASH_ON_DELIVERY_NOTES") return normalizeNotesText(v);
     return v == null ? "" : String(v);
   });
 }

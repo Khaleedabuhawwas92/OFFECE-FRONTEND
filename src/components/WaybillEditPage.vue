@@ -140,6 +140,9 @@ function inferTransportType(driver) {
   return "تريلا - سطحة";
 }
 
+/* ✅ خيارات نوع المركبة / التريلا (قيمة على مستوى البوليصة، لا تعدّل سجل السائق) */
+const TRANSPORT_TYPE_OPTIONS = ["تريلا - سطحة", "تريلا", "سطحة"];
+
 function goBack() {
   router.push({ path: "/", query: { refresh: "1", type: "waybill" } });
 }
@@ -857,7 +860,30 @@ onMounted(async () => {
             <div class="chips" v-if="selectedDrivers.length">
               <span class="chip" v-for="(d, idx) in selectedDrivers" :key="idx">
                 {{ d.DRIVER_NAME }} — {{ d.VEHICLE_NO }} •
-                {{ d.VEHICLE_REGION }} • {{ d.TYPE_TRANSPORT }}
+                {{ d.VEHICLE_REGION }} •
+                <select
+                  v-model="d.TYPE_TRANSPORT"
+                  class="chip-type-select"
+                  title="نوع المركبة / التريلا"
+                  @click.stop
+                >
+                  <option
+                    v-for="t in TRANSPORT_TYPE_OPTIONS"
+                    :key="t"
+                    :value="t"
+                  >
+                    {{ t }}
+                  </option>
+                  <option
+                    v-if="
+                      d.TYPE_TRANSPORT &&
+                      !TRANSPORT_TYPE_OPTIONS.includes(d.TYPE_TRANSPORT)
+                    "
+                    :value="d.TYPE_TRANSPORT"
+                  >
+                    {{ d.TYPE_TRANSPORT }}
+                  </option>
+                </select>
                 <button
                   type="button"
                   class="chip-x"
@@ -1291,6 +1317,15 @@ input:focus {
 }
 .chip-x:hover {
   opacity: 1;
+}
+.chip-type-select {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 2px 6px;
+  cursor: pointer;
 }
 .dropdown {
   margin-top: 8px;

@@ -257,6 +257,16 @@ function formatDate(d) {
   return String(d);
 }
 
+/* ✅ يوحّد فقرة الملاحظات: يحوّل الأسطر اليدوية لمسافات ويبقي الفقرة المفصولة بسطر فارغ */
+function normalizeNotesText(v) {
+  return String(v ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n[ \t]*\n+/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("<br>");
+}
+
 /* ✅ Template filler */
 function fillTemplate(template, obj) {
   return template.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_, key) => {
@@ -264,6 +274,7 @@ function fillTemplate(template, obj) {
     const kUpper = key.toUpperCase();
     const kLower = key.toLowerCase();
     const val = obj[kExact] ?? obj[kUpper] ?? obj[kLower] ?? "";
+    if (key === "CASH_ON_DELIVERY_NOTES") return normalizeNotesText(val);
     return val == null ? "" : String(val);
   });
 }

@@ -1774,6 +1774,16 @@ app.post("/api/goods-natures", async (req, res) => {
 });
 
 /* ======================= PDF (Waybill) ======================= */
+// Normalize notes paragraph: manual line breaks -> spaces; blank-line-separated blocks stay on separate lines
+function normalizeNotesText(v) {
+  return String(v ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n[ \t]*\n+/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("<br>");
+}
+
 function fillTemplateString(template, obj) {
   return template.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (match, key) => {
     const val =
@@ -1781,6 +1791,7 @@ function fillTemplateString(template, obj) {
       obj[String(key).toUpperCase()] ??
       obj[String(key).toLowerCase()] ??
       "";
+    if (key === "CASH_ON_DELIVERY_NOTES") return normalizeNotesText(val);
     return val == null ? "" : String(val);
   });
 }
