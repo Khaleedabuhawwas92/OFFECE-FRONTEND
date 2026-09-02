@@ -235,14 +235,12 @@ onMounted(fetchAll);
    Month rows
 ========================= */
 const monthInvoices = computed(() => {
-  const y = year.value;
-  const m = month.value;
-  const fromT = monthStartTime(y, m);
-  const toT = monthEndTime(y, m);
-
+  // ✅ عضوية الشهر تعتمد فقط على invoice.date (نص yyyy-mm-dd) — مقارنة نصية مباشرة
+  // بدون Date parsing (يتجنب انزياح UTC+3) وبدون created_at
+  const { from, to } = monthStartEndISO(year.value, month.value);
   return (invoices.value || []).filter((inv) => {
-    const t = toTimeOrNull(inv?.date) ?? toTimeOrNull(inv?.created_at);
-    return t != null && t >= fromT && t <= toT;
+    const d = String(inv?.date || "").slice(0, 10);
+    return d.length === 10 && d >= from && d <= to;
   });
 });
 
@@ -265,8 +263,11 @@ const shownInvoices = computed(() => {
   return monthInvoices.value
     .filter((inv) => rowMatches(inv))
     .filter((inv) => {
-      const t = toTimeOrNull(inv?.date) ?? toTimeOrNull(inv?.created_at);
-      return inRange(t, innerFrom.value, innerTo.value);
+      // ✅ الفلترة الداخلية أيضاً على invoice.date فقط (مقارنة نصية)
+      const d = String(inv?.date || "").slice(0, 10);
+      if (innerFrom.value && (!d || d < innerFrom.value)) return false;
+      if (innerTo.value && (!d || d > innerTo.value)) return false;
+      return true;
     });
 });
 
