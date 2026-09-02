@@ -5,6 +5,7 @@ const WaybillSchema = new mongoose.Schema(
   {
     waybillNumber: { type: String, unique: true, sparse: true },
     showStampSignature: { type: Boolean, default: false },
+    cashOnDeliveryNotes: { type: String, default: "" },
   },
   {
     strict: false,
