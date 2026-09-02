@@ -861,6 +861,9 @@ app.get("/api/reports/office-commission", async (req, res) => {
       );
       if (fixedItems.length > 0) totalCommission += FIXED_COMMISSION_AMOUNT;
 
+      // ✅ تُحسب الفاتورة فقط إذا كانت عمولتها أكبر من صفر
+      if (totalCommission <= 0) continue;
+
       const matchedItems = [...fixedItems, ...commissionItems];
       const descriptions = matchedItems
         .map(

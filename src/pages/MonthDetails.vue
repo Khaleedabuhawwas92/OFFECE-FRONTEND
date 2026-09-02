@@ -30,10 +30,10 @@ function monthKey() {
   return `${y}-${m}`;
 }
 function monthStartEndISO(y, m) {
-  const from = new Date(y, m - 1, 1);
-  const to = new Date(y, m, 0);
-  const iso = (d) => d.toISOString().slice(0, 10);
-  return { from: iso(from), to: iso(to) };
+  // ✅ بناء التاريخ محلياً بدون toISOString لتجنب انزياح المنطقة الزمنية (UTC+3)
+  const mm = String(m).padStart(2, "0");
+  const lastDay = String(new Date(y, m, 0).getDate()).padStart(2, "0");
+  return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${lastDay}` };
 }
 
 function formatDateTime(iso) {
