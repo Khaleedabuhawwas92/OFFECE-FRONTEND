@@ -1054,14 +1054,16 @@ function buildGoodsRows(data) {
   if (Array.isArray(items) && items.length) {
     return items
       .map(
-        (it) => `
+        (it, idx) => `
     <tr>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center">${esc(String(it.GOODS_NATURE ?? ""))}</td>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.TARIFF_CODE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center"></td>
       <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.GROSS_WEIGHT ?? ""))}</td>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.MARKS ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.TARIFF_CODE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.GOODS_NATURE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.PACKING_METHOD ?? ""))}</td>
       <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.PACKAGES_COUNT ?? ""))}</td>
-      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${esc(String(it.PACKING_METHOD ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(it.MARKS ?? ""))}</td>
+      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${idx + 1}</td>
     </tr>`,
       )
       .join("");
@@ -1069,12 +1071,14 @@ function buildGoodsRows(data) {
   // fallback: old single fields
   return `
     <tr>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center">${esc(String(data?.GOODS_NATURE ?? ""))}</td>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.TARIFF_CODE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center"></td>
       <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.GROSS_WEIGHT ?? ""))}</td>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.MARKS ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.TARIFF_CODE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.GOODS_NATURE ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.PACKING_METHOD ?? ""))}</td>
       <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.PACKAGES_COUNT ?? ""))}</td>
-      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.PACKING_METHOD ?? ""))}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${esc(String(data?.MARKS ?? ""))}</td>
+      <td style="border-top:1px solid #222;text-align:center;" class="val-center">1</td>
     </tr>`;
 }
 

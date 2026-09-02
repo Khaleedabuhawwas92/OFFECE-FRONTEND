@@ -622,14 +622,16 @@ function buildGoodsRowsHtml() {
   if (!items.length) return "";
   return items
     .map(
-      (it) => `
+      (it, idx) => `
     <tr>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center">${escapeHtml(it.GOODS_NATURE || "")}</td>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.TARIFF_CODE || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;height:28px;text-align:center;" class="val-center"></td>
       <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(String(it.GROSS_WEIGHT ?? ""))}</td>
-      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.MARKS || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.TARIFF_CODE || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.GOODS_NATURE || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.PACKING_METHOD || "")}</td>
       <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(String(it.PACKAGES_COUNT ?? ""))}</td>
-      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.PACKING_METHOD || "")}</td>
+      <td style="border-top:1px solid #222;border-right:1px solid #222;text-align:center;" class="val-center">${escapeHtml(it.MARKS || "")}</td>
+      <td style="border-top:1px solid #222;text-align:center;" class="val-center">${idx + 1}</td>
     </tr>`,
     )
     .join("");
