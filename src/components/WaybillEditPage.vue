@@ -70,6 +70,7 @@ const form = ref({
   ANNEXED_DOCS: "",
   ROUTE: "",
   DEMURRAGE_LOADING: "",
+  CASH_ON_DELIVERY_NOTES: "",
 });
 
 /* =========================
@@ -340,6 +341,7 @@ async function fetchWaybill() {
       ANNEXED_DOCS: wb.ANNEXED_DOCS || "",
       ROUTE: wb.ROUTE || "",
       DEMURRAGE_LOADING: wb.DEMURRAGE_LOADING || "",
+      CASH_ON_DELIVERY_NOTES: wb.CASH_ON_DELIVERY_NOTES || "",
     };
 
     showStampSignature.value = wb.showStampSignature === true;
@@ -960,6 +962,20 @@ onMounted(async () => {
           </div>
         </div>
 
+        <!-- Card 5: ملاحظات إضافية -->
+        <div class="card">
+          <div class="card-head">
+            <h3>ملاحظات إضافية</h3>
+            <span class="badge">ملاحظات</span>
+          </div>
+          <div class="grid">
+            <label class="field full">
+              <span>ملاحظات إضافية</span>
+              <textarea v-model="form.CASH_ON_DELIVERY_NOTES" rows="3"></textarea>
+            </label>
+          </div>
+        </div>
+
         <!-- Card 5 -->
         <div class="card">
           <div class="card-head">
@@ -979,6 +995,7 @@ onMounted(async () => {
             </label>
           </div>
         </div>
+
 
         <div class="footer-actions">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">

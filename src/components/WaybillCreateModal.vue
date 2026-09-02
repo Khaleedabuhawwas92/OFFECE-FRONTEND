@@ -106,6 +106,7 @@ const form = ref({
   CONSIGNER_INSTRUCTION: "",
   SPECIAL_TERMS: "",
   CASH_ON_DELIVERY: 0,
+  CASH_ON_DELIVERY_NOTES: "",
 
   // أجور (لا تتركها string)
   CHARGE1_CONSIGNEE: 0,
@@ -1314,6 +1315,14 @@ async function saveWaybill() {
               <label>الدفع عند التسليم</label>
               <textarea
                 v-model="form.CASH_ON_DELIVERY"
+                class="textarea textarea--compact"
+                rows="2"
+              ></textarea>
+            </div>
+            <div class="field">
+              <label>ملاحظات الدفع عند التسليم</label>
+              <textarea
+                v-model="form.CASH_ON_DELIVERY_NOTES"
                 class="textarea textarea--compact"
                 rows="2"
               ></textarea>
