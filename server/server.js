@@ -1592,6 +1592,7 @@ app.post("/api/drivers", async (req, res) => {
       phone: req.body.phone || "",
       vehicle_no: req.body.vehicle_no || "",
       vehicle_city: req.body.vehicle_city || "",
+      vehicleType: req.body.vehicleType || "",
       license_no: req.body.license_no || "",
       notes: req.body.notes || "",
     };
@@ -1624,6 +1625,7 @@ app.put("/api/drivers/:id", async (req, res) => {
       phone: req.body.phone || "",
       vehicle_no: req.body.vehicle_no || "",
       vehicle_city: req.body.vehicle_city || "",
+      vehicleType: req.body.vehicleType || "",
       license_no: req.body.license_no || "",
       notes: req.body.notes || "",
     };

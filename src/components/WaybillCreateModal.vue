@@ -530,6 +530,12 @@ function addDriver(d) {
   const cur = (form.value.driver_ids || []).map(String);
   if (!cur.includes(String(id))) form.value.driver_ids.push(String(id));
 
+  // ✅ تعبئة تلقائية من سجل السائق فقط إذا الحقل فاضي (لا تمس اختيار المستخدم)
+  if (!String(form.value.TYPE_TRANSPORT || "").trim()) {
+    const vt = String(d?.vehicleType ?? d?.vehicle_type ?? "").trim();
+    if (vt) form.value.TYPE_TRANSPORT = vt;
+  }
+
   syncDriverFieldsFromSelected();
   driverQuery.value = "";
   showDriverList.value = false;

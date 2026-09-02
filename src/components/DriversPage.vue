@@ -43,12 +43,16 @@ const paginatedDrivers = computed(() => {
   return filteredDrivers.value.slice(start, start + pageSize);
 });
 
+/* ✅ خيارات نوع المركبة / التريلا (نفس خيارات صفحة تعديل البوليصة) */
+const VEHICLE_TYPE_OPTIONS = ["تريلا - سطحة", "تريلا", "سطحة"];
+
 const form = ref({
   _id: null,
   name: "",
   phone: "",
   vehicle_no: "",
   vehicle_city: "", // ✅ جديد
+  vehicleType: "", // ✅ نوع المركبة / التريلا
   license_no: "",
   notes: "",
 });
@@ -60,6 +64,7 @@ function resetForm() {
     phone: "",
     vehicle_no: "",
     vehicle_city: "", // ✅ جديد
+    vehicleType: "",
     license_no: "",
     notes: "",
   };
@@ -86,6 +91,7 @@ function editDriver(d) {
     phone: d.phone || "",
     vehicle_no: d.vehicle_no || "",
     vehicle_city: d.vehicle_city || "", // ✅ جديد
+    vehicleType: d.vehicleType || "",
     license_no: d.license_no || "",
     notes: d.notes || "",
   };
@@ -196,6 +202,26 @@ onMounted(() => {
             <label class="form-field">
               <span>مدينة / منطقة المركبة</span>
               <input v-model="form.vehicle_city" type="text" />
+            </label>
+
+            <!-- ✅ نوع المركبة / التريلا -->
+            <label class="form-field">
+              <span>نوع المركبة / التريلا</span>
+              <select v-model="form.vehicleType">
+                <option value="">—</option>
+                <option v-for="t in VEHICLE_TYPE_OPTIONS" :key="t" :value="t">
+                  {{ t }}
+                </option>
+                <option
+                  v-if="
+                    form.vehicleType &&
+                    !VEHICLE_TYPE_OPTIONS.includes(form.vehicleType)
+                  "
+                  :value="form.vehicleType"
+                >
+                  {{ form.vehicleType }}
+                </option>
+              </select>
             </label>
 
             <label class="form-field">
@@ -516,6 +542,7 @@ onMounted(() => {
 }
 
 .form-field input,
+.form-field select,
 .form-field textarea {
   border-radius: 6px;
   border: 1px solid #ccc;
@@ -530,7 +557,8 @@ onMounted(() => {
   box-sizing: border-box;
 }
 
-.form-field input {
+.form-field input,
+.form-field select {
   height: 38px;
 }
 
@@ -540,6 +568,7 @@ onMounted(() => {
 }
 
 .form-field input:focus,
+.form-field select:focus,
 .form-field textarea:focus {
   outline: none;
   border-color: #1976d2;

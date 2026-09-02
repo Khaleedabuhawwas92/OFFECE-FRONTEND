@@ -41,6 +41,7 @@ const selectedConsignee = ref(null);
    ✅ Multi Drivers (same box)
 ========================= */
 const selectedDrivers = ref([]); // [{ driverId, DRIVER_NAME, VEHICLE_NO, VEHICLE_REGION, TYPE_TRANSPORT }]
+const savedGoodsItems = ref([]); // ✅ نسخة goodsItems المحفوظة (المصدر الأساسي للـ PDF)
 const driverQuery = ref("");
 const showDriverList = ref(false);
 
@@ -127,7 +128,8 @@ function getVehicleRegion(d) {
 function inferTransportType(driver) {
   const raw =
     String(
-      driver?.vehicle_type ??
+      driver?.vehicleType ??
+        driver?.vehicle_type ??
         driver?.VEHICLE_TYPE ??
         driver?.type ??
         driver?.TYPE ??
@@ -137,7 +139,7 @@ function inferTransportType(driver) {
   const t = raw.toLowerCase();
   if (t.includes("تريلا") || t.includes("trailer")) return "تريلا";
   if (t.includes("سطحة") || t.includes("flatbed")) return "سطحة";
-  return "تريلا - سطحة";
+  return String(driver?.vehicleType ?? "").trim();
 }
 
 /* ✅ خيارات نوع المركبة / التريلا (قيمة على مستوى البوليصة، لا تعدّل سجل السائق) */
@@ -287,7 +289,7 @@ function makeSelectedDriverFromDb(d) {
     DRIVER_NAME: getDriverName(d) || "",
     VEHICLE_NO: getVehicleNo(d) || "",
     VEHICLE_REGION: getVehicleRegion(d) || "",
-    TYPE_TRANSPORT: inferTransportType(d) || "تريلا - سطحة",
+    TYPE_TRANSPORT: String(d?.vehicleType ?? "").trim() || inferTransportType(d),
   };
 }
 
@@ -321,6 +323,10 @@ async function fetchWaybill() {
     const res = await axios.get(`${API_BASE}/api/waybills/${waybillId.value}`);
     const wb = res.data || {};
 
+    // ✅ goodsItems هو المصدر الأساسي عند وجوده — عبّي الفورم منه
+    savedGoodsItems.value = Array.isArray(wb.goodsItems) ? wb.goodsItems : [];
+    const g0 = savedGoodsItems.value.length ? savedGoodsItems.value[0] : null;
+
     form.value = {
       _id: wb._id,
       SERIAL_NO: wb.waybillNumber || wb.SERIAL_NO || "",
@@ -335,12 +341,12 @@ async function fetchWaybill() {
       CONSIGNEE_ADDRESS: wb.CONSIGNEE_ADDRESS || "",
       CONSIGNEE_PHONE: wb.CONSIGNEE_PHONE || "",
 
-      GOODS_NATURE: wb.GOODS_NATURE || "",
-      TARIFF_CODE: wb.TARIFF_CODE || "",
-      GROSS_WEIGHT: wb.GROSS_WEIGHT || "",
-      MARKS: wb.MARKS || "",
-      PACKAGES_COUNT: wb.PACKAGES_COUNT || "",
-      PACKING_METHOD: wb.PACKING_METHOD || "",
+      GOODS_NATURE: (g0?.GOODS_NATURE ?? wb.GOODS_NATURE) || "",
+      TARIFF_CODE: (g0?.TARIFF_CODE ?? wb.TARIFF_CODE) || "",
+      GROSS_WEIGHT: (g0?.GROSS_WEIGHT ?? wb.GROSS_WEIGHT) || "",
+      MARKS: (g0?.MARKS ?? wb.MARKS) || "",
+      PACKAGES_COUNT: (g0?.PACKAGES_COUNT ?? wb.PACKAGES_COUNT) || "",
+      PACKING_METHOD: (g0?.PACKING_METHOD ?? wb.PACKING_METHOD) || "",
       ANNEXED_DOCS: wb.ANNEXED_DOCS || "",
       ROUTE: wb.ROUTE || "",
       DEMURRAGE_LOADING: wb.DEMURRAGE_LOADING || "",
@@ -365,7 +371,7 @@ async function fetchWaybill() {
         DRIVER_NAME: name || "",
         VEHICLE_NO: vno || "",
         VEHICLE_REGION: vreg || "",
-        TYPE_TRANSPORT: ttype || "تريلا - سطحة",
+        TYPE_TRANSPORT: ttype || "",
       });
     }
 
@@ -378,7 +384,7 @@ async function fetchWaybill() {
           DRIVER_NAME: wb?.DRIVER_NAME || "",
           VEHICLE_NO: wb?.VEHICLE_NO || "",
           VEHICLE_REGION: wb?.VEHICLE_REGION || "",
-          TYPE_TRANSPORT: wb?.TYPE1_TRANSPORT || "تريلا - سطحة",
+          TYPE_TRANSPORT: wb?.TYPE1_TRANSPORT || "",
         });
       }
     }
@@ -395,7 +401,16 @@ async function fetchWaybill() {
           drvList.find(
             (d) => String(getDriverName(d)) === String(x.DRIVER_NAME),
           ));
-      return found ? makeSelectedDriverFromDb(found) : x;
+      // ✅ القيمة الفعّالة: المحفوظة بالبوليصة أولاً، وإلا من سجل السائق vehicleType
+      return found
+        ? {
+            ...makeSelectedDriverFromDb(found),
+            TYPE_TRANSPORT:
+              x.TYPE_TRANSPORT ||
+              String(found?.vehicleType ?? "").trim() ||
+              inferTransportType(found),
+          }
+        : x;
     });
 
     // consignor/consignee match
@@ -472,6 +487,23 @@ function buildSavePayload() {
     payload[`VEHICLE${n}_REGION`] = r.VEHICLE_REGION || "";
     payload[`DRIVER${n}_NAME`] = r.DRIVER_NAME || "";
   });
+
+  // ✅ مزامنة goodsItems مع القيم المعدّلة (حتى الـ PDF يستخدم القيم الجديدة)
+  if (savedGoodsItems.value.length) {
+    payload.goodsItems = savedGoodsItems.value.map((it, idx) =>
+      idx === 0
+        ? {
+            ...it,
+            GOODS_NATURE: form.value.GOODS_NATURE || "",
+            TARIFF_CODE: form.value.TARIFF_CODE || "",
+            GROSS_WEIGHT: form.value.GROSS_WEIGHT || "",
+            MARKS: form.value.MARKS || "",
+            PACKAGES_COUNT: form.value.PACKAGES_COUNT || "",
+            PACKING_METHOD: form.value.PACKING_METHOD || "",
+          }
+        : it,
+    );
+  }
 
   // ✅ back-compat للجدول
   payload.driver_ids = cleanedRows.map((r) => r.driverId).filter(Boolean);
@@ -867,6 +899,9 @@ onMounted(async () => {
                   title="نوع المركبة / التريلا"
                   @click.stop
                 >
+                  <option v-if="!d.TYPE_TRANSPORT" value="" disabled>
+                    اختر النوع
+                  </option>
                   <option
                     v-for="t in TRANSPORT_TYPE_OPTIONS"
                     :key="t"
