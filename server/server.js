@@ -794,8 +794,12 @@ app.get("/api/reports/office-commission", async (req, res) => {
 
     const invoices = await Invoice.find(query).lean();
 
-    // ✅ قاعدة ثابتة مشتقة من بنود الفاتورة الحالية (تشمل الفواتير القديمة تلقائياً):
-    // فاتورة تحتوي بند "50 دولار اصدار بوليصة شحن" => عمولة مكتب 10 JOD (مرة واحدة فقط لكل فاتورة)
+    // ✅ قواعد محسّنة ومشتقة مباشرة من بنود الفاتورة (تشمل كل الفواتير تلقائياً):
+    // 1) بند وصفه (بعد normalize) يحتوي على "عمولة مكتب" أو "عمولة المكتب"
+    //    → تُحسب قيمته الفعلية باستخدام resolveAmount(item)
+    // 2) بند وصفه (بعد normalize) يساوي بالضبط "50 دولار اصدار بوليصة شحن"
+    //    → يضيف 10 JOD ثابتة مرة واحدة فقط لكل فاتورة (مهما تكرر البند)
+    // 3) باقي البنود → 0
     const FIXED_COMMISSION_AMOUNT = 10;
     const normalizeDesc = (v) => String(v || "").replace(/\s+/g, " ").trim();
     const FIXED_COMMISSION_DESC_NORM = normalizeDesc(
@@ -803,29 +807,14 @@ app.get("/api/reports/office-commission", async (req, res) => {
     );
 
     function itemMatchesFixedCommission(item) {
-      const hay = [
-        item.desc,
-        item.description,
-        item.name,
-        item.item,
-        item.details,
-      ]
-        .map((v) => normalizeDesc(v))
-        .join(" ");
-      return hay.includes(FIXED_COMMISSION_DESC_NORM);
+      // مطابقة تامة (exact) على الوصف normalized — ليس includes
+      return normalizeDesc(item.desc) === FIXED_COMMISSION_DESC_NORM;
     }
 
     function itemIsCommission(item) {
-      const hay = [
-        item.desc,
-        item.description,
-        item.name,
-        item.item,
-        item.details,
-      ]
-        .map((v) => String(v || ""))
-        .join(" ");
-      return hay.includes("عمولة مكتب");
+      // normalize الوصف ثم contains/includes
+      const nd = normalizeDesc(item.desc);
+      return nd.includes("عمولة مكتب") || nd.includes("عمولة المكتب");
     }
 
     function resolveAmount(item) {
@@ -847,10 +836,15 @@ app.get("/api/reports/office-commission", async (req, res) => {
     const results = [];
     for (const inv of invoices) {
       const items = inv.items || [];
-      const commissionItems = items.filter(itemIsCommission);
-      const fixedItems = items.filter(itemMatchesFixedCommission);
+      const commissionItems = [];
+      let fixedFound = false;
 
-      if (commissionItems.length === 0 && fixedItems.length === 0) continue;
+      for (const item of items) {
+        if (itemIsCommission(item)) commissionItems.push(item);
+        if (itemMatchesFixedCommission(item)) fixedFound = true;
+      }
+
+      if (commissionItems.length === 0 && !fixedFound) continue;
 
       // ✅ بنود "عمولة مكتب": تُجمع قيمتها الفعلية
       // ✅ بند "50 دولار اصدار بوليصة شحن": 10 JOD ثابتة مرة واحدة فقط لكل فاتورة (بدون قيمته 50)
@@ -859,25 +853,21 @@ app.get("/api/reports/office-commission", async (req, res) => {
         (sum, item) => sum + resolveAmount(item),
         0,
       );
-      if (fixedItems.length > 0) totalCommission += FIXED_COMMISSION_AMOUNT;
+      if (fixedFound) totalCommission += FIXED_COMMISSION_AMOUNT;
 
       // ✅ تُحسب الفاتورة فقط إذا كانت عمولتها أكبر من صفر
       if (totalCommission <= 0) continue;
 
-      const matchedItems = [...fixedItems, ...commissionItems];
-      const descriptions = matchedItems
-        .map(
-          (item) =>
-            item.desc ||
-            item.description ||
-            item.name ||
-            item.item ||
-            item.details ||
-            "",
-        )
+      const descriptions = commissionItems
+        .map((item) => item.desc || "")
         .filter(Boolean)
         .join(" + ");
-      const currency = fixedItems.length
+
+      const commissionValues = commissionItems.map((item) =>
+        Number(resolveAmount(item).toFixed(3)),
+      );
+
+      const currency = fixedFound
         ? "JOD"
         : commissionItems[0]?.currency || inv.einv?.currency || "JOD";
 
@@ -887,6 +877,8 @@ app.get("/api/reports/office-commission", async (req, res) => {
         date: inv.date,
         company: inv.company,
         description: descriptions,
+        commission_values: commissionValues,
+        special_50_found: fixedFound,
         currency,
         commission_amount: Number(totalCommission.toFixed(3)),
       });
