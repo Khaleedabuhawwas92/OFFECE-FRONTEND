@@ -15,13 +15,11 @@ const pageSize = 10;
 const filteredDrivers = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
   if (!q) return drivers.value;
-  return drivers.value.filter((d) =>
-    (d.name || "").toLowerCase().includes(q)
-  );
+  return drivers.value.filter((d) => (d.name || "").toLowerCase().includes(q));
 });
 
 const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredDrivers.value.length / pageSize))
+  Math.max(1, Math.ceil(filteredDrivers.value.length / pageSize)),
 );
 
 const pageNumbers = computed(() => {
@@ -44,7 +42,7 @@ const paginatedDrivers = computed(() => {
 });
 
 /* ✅ خيارات نوع المركبة / التريلا (نفس خيارات صفحة تعديل البوليصة) */
-const VEHICLE_TYPE_OPTIONS = ["تريلا - سطحة", "تريلا", "سطحة"];
+const VEHICLE_TYPE_OPTIONS = ["تريلا - سطحة", "تريلا", "سطحة", تير];
 
 const form = ref({
   _id: null,
@@ -330,7 +328,10 @@ onMounted(() => {
               v-for="p in pageNumbers"
               :key="p"
               class="btn btn--compact"
-              :class="{ 'btn--primary': currentPage === p, 'btn--secondary': currentPage !== p }"
+              :class="{
+                'btn--primary': currentPage === p,
+                'btn--secondary': currentPage !== p,
+              }"
               @click="currentPage = p"
             >
               {{ p }}
