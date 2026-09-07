@@ -42,7 +42,7 @@ const paginatedDrivers = computed(() => {
 });
 
 /* ✅ خيارات نوع المركبة / التريلا (نفس خيارات صفحة تعديل البوليصة) */
-const VEHICLE_TYPE_OPTIONS = ["تريلا - سطحة", "تريلا", "سطحة", تير];
+const VEHICLE_TYPE_OPTIONS = ["تريلا - سطحة", "تريلا", "سطحة", "تير"];
 
 const form = ref({
   _id: null,
