@@ -141,7 +141,8 @@
         font-size: 11px;
       }
       @media print {
-        html, body {
+        html,
+        body {
           margin: 0;
           padding: 0;
           height: auto;
@@ -162,10 +163,7 @@
         <div class="left">ARAB WORLD EAST EST.<br />Land Transportation</div>
         <div class="center-logo">
           <div class="besm">بسم الله الرحمن الرحيم</div>
-          <img
-            src="./images/company-logo.png"
-            class="logo-img"
-          />
+          <img src="./images/company-logo.png" class="logo-img" />
         </div>
         <div class="right">مؤسسة شـرق العالم العربي<br />للنقل البري</div>
       </div>
@@ -1015,14 +1013,29 @@
                 </td>
               </tr>
               <tr>
-                <td style="padding: 5px 4px; height: 40px; vertical-align: top;">
+                <td style="padding: 5px 4px; height: 40px; vertical-align: top">
                   <div class="label-row">
                     <span class="en">Cash on Delivery</span
                     ><span class="ar">(29) الدفع عند التسليم</span>
                   </div>
                   <div
                     class="value small"
-                    style="text-align: left !important; direction: ltr; display: block; width: 100%; box-sizing: border-box; padding-left: 10px; padding-right: 10px; font-family: Arial, Helvetica, sans-serif; font-size: 11px; font-weight: 500; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal"
+                    style="
+                      text-align: left !important;
+                      direction: ltr;
+                      display: block;
+                      width: 100%;
+                      box-sizing: border-box;
+                      padding-left: 10px;
+                      padding-right: 10px;
+                      font-family: Arial, Helvetica, sans-serif;
+                      font-size: 11px;
+                      font-weight: 500;
+                      line-height: 1.35;
+                      white-space: normal;
+                      overflow-wrap: break-word;
+                      word-break: normal;
+                    "
                   >
                     {{CASH_ON_DELIVERY}}
                   </div>
@@ -1075,10 +1088,34 @@
                     height: 54px;
                   "
                 >
-                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Goods received in</div>
-                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">On</div>
-                  <div style="font-weight: 600; text-align: right; direction: rtl">(32) استلمت البضاعة في</div>
-                  <div style="font-weight: 600; text-align: right; direction: rtl">تاريخ</div>
+                  <div
+                    style="
+                      font-weight: 600;
+                      font-family: Arial, sans-serif;
+                      text-align: left;
+                    "
+                  >
+                    Goods received in
+                  </div>
+                  <div
+                    style="
+                      font-weight: 600;
+                      font-family: Arial, sans-serif;
+                      text-align: left;
+                    "
+                  >
+                    On
+                  </div>
+                  <div
+                    style="font-weight: 600; text-align: right; direction: rtl"
+                  >
+                    (32) استلمت البضاعة في
+                  </div>
+                  <div
+                    style="font-weight: 600; text-align: right; direction: rtl"
+                  >
+                    تاريخ
+                  </div>
                 </td>
                 <!-- BOX 2 : consignee signature & stamp -->
                 <td
@@ -1091,8 +1128,20 @@
                     height: 54px;
                   "
                 >
-                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Signature and stamp of the consignee</div>
-                  <div style="font-weight: 600; text-align: right; direction: rtl">ختم وتوقيع المرسل إليه</div>
+                  <div
+                    style="
+                      font-weight: 600;
+                      font-family: Arial, sans-serif;
+                      text-align: left;
+                    "
+                  >
+                    Signature and stamp of the consignee
+                  </div>
+                  <div
+                    style="font-weight: 600; text-align: right; direction: rtl"
+                  >
+                    ختم وتوقيع الشاحن / المرسل
+                  </div>
                   <!-- large blank area for physical signature/stamp -->
                   <div style="height: 14px"></div>
                 </td>
@@ -1105,8 +1154,20 @@
                     vertical-align: top;
                   "
                 >
-                  <div style="font-weight: 600; font-family: Arial, sans-serif; text-align: left">Signature/stamp of carrier / sender</div>
-                  <div style="font-weight: 600; text-align: right; direction: rtl">(31) توقيع وختم الناقل / المرسل</div>
+                  <div
+                    style="
+                      font-weight: 600;
+                      font-family: Arial, sans-serif;
+                      text-align: left;
+                    "
+                  >
+                    Signature/stamp of carrier / sender
+                  </div>
+                  <div
+                    style="font-weight: 600; text-align: right; direction: rtl"
+                  >
+                    (31) توقيع وختم / المرسل
+                  </div>
                   <!-- large blank area for physical signature/stamp -->
                   {{STAMP_SIGNATURE_BLOCK}}
                 </td>
@@ -1139,14 +1200,16 @@
         var tables = document.querySelectorAll("table");
         for (var k = 0; k < tables.length; k++) {
           var t = tables[k];
-          if (!t.textContent || t.textContent.indexOf("الأرقام والعلامات") === -1)
+          if (
+            !t.textContent ||
+            t.textContent.indexOf("الأرقام والعلامات") === -1
+          )
             continue;
           for (var i = 1; i < t.rows.length; i++) {
             var tds = t.rows[i].cells;
             for (var j = 0; j < tds.length; j++) {
               var txt = tds[j].textContent.replace(/\s+/g, "");
-              if (!txt || /^\{\{[^}]*\}\}$/.test(txt))
-                tds[j].textContent = "0";
+              if (!txt || /^\{\{[^}]*\}\}$/.test(txt)) tds[j].textContent = "0";
             }
           }
         }
