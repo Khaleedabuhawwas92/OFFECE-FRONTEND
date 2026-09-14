@@ -802,11 +802,52 @@ app.delete("/api/invoices/:id", async (req, res) => {
    منفصلة بـ documentKind = CREDIT_NOTE ورقم مستقل (CR-...)
 ======================= */
 
+// ✅ معيار "النجاح الحقيقي" لدى JoFotara في هذا المشروع هو نفسه المستخدم
+// فعلياً وبنجاح في باقي الواجهة (PreviewModal.hasJofotaraInvoice، شارة
+// الحالة في BotDashboard): einv_status === "submitted". هذا هو ما يعنيه
+// submitInvoiceToEInv فعلياً عند النجاح (لا توجد قيم "accepted"/"approved"
+// في هذا الكود إطلاقاً).
+function isInvoiceEinvApproved(inv) {
+  return inv?.einv_status === "submitted";
+}
+
+// ✅ استرجاع UUID الفعلي الذي أُرسل لـ JoFotara لفاتورة قديمة اعتُمدت قبل
+// إضافة حفظ einv_uuid (كانت buildUblInvoiceXml تولّد UUID عشوائي في كل
+// مرة دون حفظه). المصدر: einv_signed_invoice نفسه — نفس XML الموقّع الذي
+// يعرضه/يفكّه PreviewModal.parseJofotaraXml عبر childText(root, "UUID")
+// (أول عنصر UUID مباشر تحت جذر <Invoice> — يسبق أي UUID متداخل داخل
+// BillingReference بحسب ترتيب العناصر الرسمي). لا تخمين لقيمة جديدة —
+// استرجاع فعلي لما أُرسل واعتمدته JoFotara بالفعل.
+function extractUuidFromSignedInvoice(base64Xml) {
+  try {
+    const xml = Buffer.from(String(base64Xml || ""), "base64").toString("utf8");
+    const m = xml.match(/<(?:[\w-]+:)?UUID>([^<]+)<\/(?:[\w-]+:)?UUID>/);
+    return m ? m[1].trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 // المتبقي القابل للإرجاع لكل بند في الفاتورة الأصلية، بعد خصم كل فواتير
 // الإرجاع (CREDIT_NOTE) التي أُنشئت سابقاً وتشير لنفس الفاتورة الأصلية
 async function computeRefundInfo(originalInvoiceId) {
   const original = await Invoice.findById(originalInvoiceId);
   if (!original || original.documentKind === "CREDIT_NOTE") return null;
+
+  // ✅ فاتورة معتمدة (einv_status === "submitted") لكن einv_uuid مفقود
+  // (فاتورة قديمة سابقة لإضافة هذا الحقل) → حاول استرجاعه من النسخة
+  // الموقّعة المحفوظة فعلياً، واحفظه كي لا نعيد هذا الاسترجاع كل مرة
+  if (
+    isInvoiceEinvApproved(original) &&
+    !original.einv_uuid &&
+    original.einv_signed_invoice
+  ) {
+    const recovered = extractUuidFromSignedInvoice(original.einv_signed_invoice);
+    if (recovered) {
+      original.einv_uuid = recovered;
+      await original.save();
+    }
+  }
 
   const returns = await Invoice.find({
     documentKind: "CREDIT_NOTE",
@@ -900,12 +941,37 @@ app.post("/api/invoices/:id/returns", async (req, res) => {
     if (!reason)
       return res.status(400).json({ error: "سبب الإرجاع مطلوب" });
 
-    // ✅ فاتورة إرجاع تشير لفاتورة JoFotara تتطلب UUID الفاتورة الأصلية —
-    // لا يمكن إرسالها لـ JoFotara بدون أن تكون الأصلية معتمدة أولاً
+    // ✅ فاتورة محلية (خارج تدفق JoFotara) — نفس المعيار المستخدم فعلياً في
+    // BotDashboard لعرض شارة "محلية" (einv_status === "draft"، تُضبط في
+    // POST /api/invoices عندما submitToEInv=false). لا فاتورة إرجاع تُرسل
+    // لـ JoFotara تُبنى على أصل لم يدخل تدفق الفوترة الإلكترونية إطلاقاً.
+    if (original.einv_status === "draft") {
+      return res
+        .status(400)
+        .json({ error: "لا يمكن إنشاء فاتورة إرجاع لفاتورة محلية" });
+    }
+
+    // ✅ معيار الأهلية الحقيقي: نفس معيار "النجاح" المستخدم فعلياً في باقي
+    // الواجهة — einv_status === "submitted" (لا "accepted"/"approved"، هذه
+    // القيم غير موجودة في هذا الكود). فاتورة فاشلة/مرفوضة/لم تُرسل بعد تُمنع.
+    if (!isInvoiceEinvApproved(original)) {
+      return res.status(400).json({
+        error:
+          "لا يمكن إنشاء فاتورة إرجاع قبل اعتماد الفاتورة الأصلية عبر JoFotara (الحالة الحالية: " +
+          (original.einv_status || "غير معروفة") +
+          ")",
+      });
+    }
+
+    // ✅ الأهلية ثابتة الآن على حالة الاعتماد، لكن الإرسال الفعلي لفاتورة
+    // الإرجاع يحتاج UUID حقيقي للفاتورة الأصلية للإشارة إليه في
+    // BillingReference. computeRefundInfo يحاول استرجاعه تلقائياً من
+    // einv_signed_invoice لو كان مفقوداً؛ إن تعذّر ذلك فعلاً نمنع فقط هذه
+    // الحالة الحدّية (بيانات ناقصة) برسالة مختلفة وواضحة.
     if (!original.einv_uuid) {
       return res.status(400).json({
         error:
-          "لا يمكن إنشاء فاتورة إرجاع قبل اعتماد الفاتورة الأصلية عبر JoFotara (UUID غير متوفر)",
+          "الفاتورة الأصلية معتمدة من JoFotara لكن تعذّر استرجاع UUID الفعلي المرسل لها (لا توجد نسخة موقّعة محفوظة) — لا يمكن إنشاء فاتورة إرجاع صالحة للإرسال",
       });
     }
 

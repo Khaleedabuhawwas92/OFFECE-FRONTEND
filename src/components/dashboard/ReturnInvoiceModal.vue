@@ -106,8 +106,20 @@ const returnTotal = computed(() => {
   );
 });
 
+// ✅ معيار الأهلية الحقيقي المستخدم في باقي الواجهة (PreviewModal
+// hasJofotaraInvoice، شارة الحالة في BotDashboard): einv_status === "submitted".
+// لا توجد حالة "accepted"/"approved" في هذا النظام — "submitted" هي حالة
+// النجاح الفعلية بعد submitInvoiceToEInv.
+const isOriginalApproved = computed(
+  () => original.value?.einv_status === "submitted",
+);
+
 const validationError = computed(() => {
   if (!original.value) return "";
+  if (!isOriginalApproved.value)
+    return `لا يمكن إنشاء فاتورة إرجاع قبل اعتماد الفاتورة الأصلية عبر JoFotara (الحالة الحالية: ${original.value.einv_status || "غير معروفة"})`;
+  if (!original.value.einv_uuid)
+    return "الفاتورة الأصلية معتمدة من JoFotara لكن تعذّر استرجاع UUID الفعلي المرسل لها — لا يمكن إنشاء فاتورة إرجاع صالحة للإرسال";
   if (!String(reason.value || "").trim()) return "سبب الإرجاع مطلوب";
   if (!selectedRows.value.length)
     return "اختر بندًا واحدًا على الأقل بكمية إرجاع أكبر من صفر";
@@ -117,8 +129,6 @@ const validationError = computed(() => {
     if (qty > it.remainingQty + 1e-9)
       return `الكمية المدخلة لـ "${it.desc}" (${qty}) أكبر من المتبقي القابل للإرجاع (${it.remainingQty})`;
   }
-  if (!original.value.einv_uuid)
-    return "لا يمكن إنشاء فاتورة إرجاع قبل اعتماد الفاتورة الأصلية عبر JoFotara";
   return "";
 });
 
@@ -240,9 +250,14 @@ onMounted(fetchInfo);
             </div>
           </div>
 
-          <p v-if="!original?.einv_uuid" class="ri-warning">
-            ⚠️ الفاتورة الأصلية لم تُعتمد بعد عبر JoFotara — لا يمكن إنشاء فاتورة
-            إرجاع تُرسل إليها قبل الاعتماد.
+          <p v-if="!isOriginalApproved" class="ri-warning">
+            ⚠️ الفاتورة الأصلية لم تُعتمد بعد عبر JoFotara (الحالة الحالية: {{
+              original?.einv_status || "غير معروفة"
+            }}) — لا يمكن إنشاء فاتورة إرجاع تُرسل إليها قبل الاعتماد.
+          </p>
+          <p v-else-if="!original?.einv_uuid" class="ri-warning">
+            ⚠️ الفاتورة الأصلية معتمدة لكن تعذّر استرجاع UUID الفعلي المرسل لها
+            من JoFotara — لا يمكن إنشاء فاتورة إرجاع صالحة للإرسال حالياً.
           </p>
 
           <!-- ===== المرتجعات السابقة ===== -->

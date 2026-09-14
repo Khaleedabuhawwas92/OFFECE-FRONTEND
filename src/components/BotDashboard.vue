@@ -1430,7 +1430,7 @@ onMounted(async () => {
                     </RouterLink>
 
                     <button
-                      v-if="inv.documentKind !== 'CREDIT_NOTE'"
+                      v-if="inv.documentKind !== 'CREDIT_NOTE' && inv.einv_status !== 'draft'"
                       class="btn btn--secondary btn--small"
                       @click="openReturnModal(inv)"
                     >
