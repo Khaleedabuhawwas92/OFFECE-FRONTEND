@@ -605,12 +605,28 @@ async function fetchBotStatus() {
   }
 }
 
+// ✅ حالة الإرجاع (فارغ / مرتجع جزئي / مرتجع بالكامل) لكل فاتورة أصلية —
+// من endpoint دفعة واحدة يعيد استخدام نفس قاعدة الاحتساب في السيرفر
+// (فواتير إرجاع submitted فقط)، بدل تكرار الحساب هنا
+const returnStatusByInvoiceId = ref({});
+
+async function fetchReturnsSummary() {
+  try {
+    const res = await axios.get(`${API_BASE}/api/invoices/returns-summary`);
+    returnStatusByInvoiceId.value = res.data && typeof res.data === "object" ? res.data : {};
+  } catch (err) {
+    console.error("returns-summary error:", err);
+    returnStatusByInvoiceId.value = {};
+  }
+}
+
 async function fetchInvoices() {
   loadingInvoices.value = true;
   errorMessage.value = "";
   try {
     const res = await axios.get(`${API_BASE}/api/invoices?limit=200`);
     invoices.value = Array.isArray(res.data) ? res.data : [];
+    await fetchReturnsSummary();
   } catch (err) {
     console.error("invoices error:", err);
     errorMessage.value = "تعذّر تحميل الفواتير.";
@@ -1386,7 +1402,11 @@ onMounted(async () => {
               </thead>
 
               <tbody>
-                <tr v-for="inv in pagedInvoices" :key="inv._id">
+                <tr
+                  v-for="inv in pagedInvoices"
+                  :key="inv._id"
+                  :class="{ 'tr--fully-returned': returnStatusByInvoiceId[inv._id] === 'FULL' }"
+                >
                   <td class="cell-ellipsis">
                     {{ inv.invoice_number }}
                     <span
@@ -1394,6 +1414,18 @@ onMounted(async () => {
                       class="badge badge--gray"
                       title="فاتورة إرجاع"
                       >إرجاع</span
+                    >
+                    <span
+                      v-else-if="returnStatusByInvoiceId[inv._id] === 'FULL'"
+                      class="badge badge--orange"
+                      title="كل بنود الفاتورة استُهلكت بفواتير إرجاع معتمدة"
+                      >مرتجعة بالكامل</span
+                    >
+                    <span
+                      v-else-if="returnStatusByInvoiceId[inv._id] === 'PARTIAL'"
+                      class="badge badge--orange"
+                      title="جزء من بنود الفاتورة أُرجع"
+                      >مرتجع جزئي</span
                     >
                   </td>
                   <td class="td-clip cell-ellipsis" :title="inv.company">
@@ -1430,7 +1462,7 @@ onMounted(async () => {
                     </RouterLink>
 
                     <button
-                      v-if="inv.documentKind !== 'CREDIT_NOTE' && inv.einv_status !== 'draft'"
+                      v-if="inv.documentKind !== 'CREDIT_NOTE' && inv.einv_status !== 'draft' && returnStatusByInvoiceId[inv._id] !== 'FULL'"
                       class="btn btn--secondary btn--small"
                       @click="openReturnModal(inv)"
                     >
@@ -2423,6 +2455,14 @@ onMounted(async () => {
 
 .table tbody tr:nth-child(even) td {
   background: #fcfcfd;
+}
+
+/* ✅ فاتورة أصلية مرتجعة بالكامل (كل البنود استُهلكت بفواتير إرجاع submitted) */
+.table tbody tr.tr--fully-returned td {
+  background: #fff3e0;
+}
+.table tbody tr.tr--fully-returned:hover td {
+  background: #ffe8c2;
 }
 
 .table-empty {
