@@ -17,6 +17,10 @@ const InvoiceItemSchema = new mongoose.Schema(
     currency: { type: String, default: "JOD" },
     rate_to_jod: { type: Number, default: 1 },
     amount_jod: { type: Number, default: 0 },
+
+    // ✅ فاتورة إرجاع: أي بند من بنود فاتورة الإرجاع يشير إلى فهرس البند
+    // المقابل في items الأصلية (original invoice) لاحتساب المتبقي القابل للإرجاع
+    originalItemIndex: { type: Number, default: null },
   },
   { _id: false },
 );
@@ -104,6 +108,25 @@ const InvoiceSchema = new mongoose.Schema(
     einv_signed_invoice: { type: String, default: null },
     einv_qr: { type: String, default: null },
     einv_num: { type: String, default: null },
+
+    // ✅ UUID الفعلي المُرسل لـ JoFotara (يُنشأ مرة واحدة ويُحفظ — لازم لفواتير
+    // الإرجاع لاحقاً كي تشير لنفس UUID الذي اعتمدته JoFotara على الفاتورة الأصلية)
+    einv_uuid: { type: String, default: null },
+
+    // ✅ فاتورة إرجاع (Credit Note)
+    documentKind: {
+      type: String,
+      enum: ["INVOICE", "CREDIT_NOTE"],
+      default: "INVOICE",
+    },
+    originalInvoiceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Invoice",
+      default: null,
+    },
+    originalInvoiceNumber: { type: String, default: "" },
+    originalInvoiceUUID: { type: String, default: "" },
+    returnReason: { type: String, default: "" },
 
     created_at: { type: Date, default: Date.now },
   },

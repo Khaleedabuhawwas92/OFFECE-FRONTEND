@@ -607,8 +607,17 @@ onBeforeUnmount(() => {
     <div class="pv-modal">
       <div class="pv-toolbar">
         <div class="pv-toolbar-right">
-          <h3>{{ title }}</h3>
-          <p>المعاينة تظهر كما ستطبع على A4</p>
+          <h3>
+            {{ title }}
+            <span v-if="props.invoice?.documentKind === 'CREDIT_NOTE'" class="pv-cn-badge"
+              >فاتورة إرجاع</span
+            >
+          </h3>
+          <p v-if="props.invoice?.documentKind === 'CREDIT_NOTE'">
+            مرجع الفاتورة الأصلية: <strong dir="ltr">{{ props.invoice?.originalInvoiceNumber }}</strong>
+            <span v-if="props.invoice?.returnReason"> — سبب الإرجاع: {{ props.invoice.returnReason }}</span>
+          </p>
+          <p v-else>المعاينة تظهر كما ستطبع على A4</p>
         </div>
 
         <div class="pv-toolbar-left">
@@ -811,6 +820,17 @@ onBeforeUnmount(() => {
 .btn--pdf:disabled {
   opacity: 0.6;
   cursor: default;
+}
+.pv-cn-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #fdecea;
+  color: #b71c1c;
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: middle;
 }
 .btn--jofotara {
   background: #0f766e;

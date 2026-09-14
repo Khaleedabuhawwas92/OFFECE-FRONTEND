@@ -265,6 +265,21 @@ async function peekNextInvoiceNumber(docDate = new Date()) {
   );
 }
 
+/* =======================
+   SERIAL (Credit Note / فاتورة إرجاع) — per-month
+   مثال: CR-260YYMM-0001 — نفس عمود invoice_number ونفس آلية الترقيم
+======================= */
+async function reserveNextCreditNoteNumber(docDate = new Date()) {
+  const monthPrefix = `CR-${monthPrefixFromDate(docDate)}`;
+  const datePrefix = `CR-${datePrefixFromDate(docDate)}`;
+  return getNextSerialForMonth(
+    Invoice,
+    "invoice_number",
+    monthPrefix,
+    datePrefix,
+  );
+}
+
 /* ======================= HEALTH ======================= */
 app.get("/health", (req, res) => {
   res.json({ ok: true });
@@ -781,6 +796,213 @@ app.delete("/api/invoices/:id", async (req, res) => {
   }
 });
 
+/* =======================
+   RETURN INVOICES (فاتورة إرجاع / Credit Note)
+   ✅ لا تُعدّل أو تحذف الفاتورة الأصلية إطلاقاً — تُنشأ فاتورة Invoice
+   منفصلة بـ documentKind = CREDIT_NOTE ورقم مستقل (CR-...)
+======================= */
+
+// المتبقي القابل للإرجاع لكل بند في الفاتورة الأصلية، بعد خصم كل فواتير
+// الإرجاع (CREDIT_NOTE) التي أُنشئت سابقاً وتشير لنفس الفاتورة الأصلية
+async function computeRefundInfo(originalInvoiceId) {
+  const original = await Invoice.findById(originalInvoiceId);
+  if (!original || original.documentKind === "CREDIT_NOTE") return null;
+
+  const returns = await Invoice.find({
+    documentKind: "CREDIT_NOTE",
+    originalInvoiceId: original._id,
+  }).sort({ created_at: -1 });
+
+  const items = Array.isArray(original.items) ? original.items : [];
+  const returnedQtyByIndex = new Array(items.length).fill(0);
+  const returnedAmtByIndex = new Array(items.length).fill(0);
+
+  for (const r of returns) {
+    for (const it of Array.isArray(r.items) ? r.items : []) {
+      const idx = Number(it.originalItemIndex);
+      if (Number.isInteger(idx) && idx >= 0 && idx < items.length) {
+        returnedQtyByIndex[idx] += Number(it.quantity || 0);
+        returnedAmtByIndex[idx] += Number(it.lineNet || it.amount_jod || 0);
+      }
+    }
+  }
+
+  const itemsWithRemaining = items.map((it, idx) => {
+    const quantity = Number(it.quantity || 0);
+    const unitPrice = Number(it.unitPrice || 0);
+    const discount = Number(it.discount || 0);
+    const lineNet = Math.max(0, quantity * unitPrice - discount);
+    const returnedQty = Number((returnedQtyByIndex[idx] || 0).toFixed(3));
+    const returnedAmount = Number((returnedAmtByIndex[idx] || 0).toFixed(3));
+    const remainingQty = Math.max(0, Number((quantity - returnedQty).toFixed(3)));
+    const remainingAmount = Math.max(0, Number((lineNet - returnedAmount).toFixed(3)));
+
+    return {
+      index: idx,
+      desc: it.desc,
+      quantity,
+      unitPrice,
+      discount,
+      lineNet: Number(lineNet.toFixed(3)),
+      returnedQty,
+      returnedAmount,
+      remainingQty,
+      remainingAmount,
+    };
+  });
+
+  return { original, returns, items: itemsWithRemaining };
+}
+
+app.get("/api/invoices/:id/refund-info", async (req, res) => {
+  try {
+    const info = await computeRefundInfo(req.params.id);
+    if (!info)
+      return res.status(404).json({ error: "الفاتورة الأصلية غير موجودة" });
+
+    res.json({
+      original: {
+        _id: info.original._id,
+        invoice_number: info.original.invoice_number,
+        date: info.original.date,
+        company: info.original.company,
+        value_jod: info.original.value_jod,
+        einv_uuid: info.original.einv_uuid,
+        einv_status: info.original.einv_status,
+      },
+      items: info.items,
+      returns: info.returns.map((r) => ({
+        _id: r._id,
+        invoice_number: r.invoice_number,
+        date: r.date,
+        value_jod: r.value_jod,
+        returnReason: r.returnReason,
+        einv_status: r.einv_status,
+        created_at: r.created_at,
+      })),
+    });
+  } catch (e) {
+    console.error("GET /api/invoices/:id/refund-info error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
+app.post("/api/invoices/:id/returns", async (req, res) => {
+  try {
+    const info = await computeRefundInfo(req.params.id);
+    if (!info)
+      return res.status(404).json({ error: "الفاتورة الأصلية غير موجودة" });
+    const { original, items: refundableItems } = info;
+
+    const reason = String(req.body?.reason || "").trim();
+    if (!reason)
+      return res.status(400).json({ error: "سبب الإرجاع مطلوب" });
+
+    // ✅ فاتورة إرجاع تشير لفاتورة JoFotara تتطلب UUID الفاتورة الأصلية —
+    // لا يمكن إرسالها لـ JoFotara بدون أن تكون الأصلية معتمدة أولاً
+    if (!original.einv_uuid) {
+      return res.status(400).json({
+        error:
+          "لا يمكن إنشاء فاتورة إرجاع قبل اعتماد الفاتورة الأصلية عبر JoFotara (UUID غير متوفر)",
+      });
+    }
+
+    const requested = Array.isArray(req.body?.items) ? req.body.items : [];
+    const picked = requested
+      .map((r) => ({ index: Number(r?.index), quantity: Number(r?.quantity) }))
+      .filter((r) => Number.isInteger(r.index) && r.quantity > 0);
+
+    if (!picked.length)
+      return res
+        .status(400)
+        .json({ error: "اختر بندًا واحدًا على الأقل بكمية إرجاع أكبر من صفر" });
+
+    const returnItems = [];
+    for (const p of picked) {
+      const src = refundableItems[p.index];
+      if (!src)
+        return res.status(400).json({ error: `بند غير صالح: ${p.index}` });
+      if (p.quantity > src.remainingQty + 1e-9) {
+        return res.status(400).json({
+          error: `الكمية المطلوب إرجاعها لـ "${src.desc}" (${p.quantity}) أكبر من الكمية المتبقية القابلة للإرجاع (${src.remainingQty})`,
+        });
+      }
+
+      const unitPrice = src.unitPrice;
+      const qtyFraction = src.quantity > 0 ? p.quantity / src.quantity : 0;
+      const discount = Number((src.discount * qtyFraction).toFixed(3));
+      const lineNet = Math.max(
+        0,
+        Number((p.quantity * unitPrice - discount).toFixed(3)),
+      );
+
+      returnItems.push({
+        originalItemIndex: src.index,
+        desc: src.desc,
+        quantity: p.quantity,
+        unitPrice,
+        discount,
+        lineNet,
+        amount: lineNet,
+        amount_jod: lineNet,
+        currency: "JOD",
+        rate_to_jod: 1,
+      });
+    }
+
+    const value_jod = Number(
+      returnItems.reduce((s, it) => s + it.lineNet, 0).toFixed(3),
+    );
+    if (!(value_jod > 0)) {
+      return res.status(400).json({ error: "قيمة فاتورة الإرجاع غير صالحة" });
+    }
+
+    const invoice_number = await reserveNextCreditNoteNumber(new Date());
+
+    const cn = new Invoice({
+      invoice_number,
+      date: new Date().toISOString().slice(0, 10),
+      company: original.company,
+      consignor_id: original.consignor_id || null,
+      items: returnItems,
+      value_jod,
+      notes: reason,
+      einv: original.einv,
+      einv_status: "pending",
+      documentKind: "CREDIT_NOTE",
+      originalInvoiceId: original._id,
+      originalInvoiceNumber: original.invoice_number,
+      originalInvoiceUUID: original.einv_uuid,
+      returnReason: reason,
+    });
+    await cn.save();
+
+    res.status(201).json(cn);
+  } catch (e) {
+    console.error("POST /api/invoices/:id/returns error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
+app.get("/api/invoices/:id/returns", async (req, res) => {
+  try {
+    const returns = await Invoice.find({
+      documentKind: "CREDIT_NOTE",
+      originalInvoiceId: req.params.id,
+    }).sort({ created_at: -1 });
+    res.json(returns);
+  } catch (e) {
+    console.error("GET /api/invoices/:id/returns error:", e);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
 /* ======================= REPORTS: Office Commission ======================= */
 app.get("/api/reports/office-commission", async (req, res) => {
   try {
@@ -1109,7 +1331,10 @@ function buildUblInvoiceXml(inv) {
     inv?.date || new Date().toISOString().slice(0, 10),
   );
   const invoiceId = inv?.invoice_number || `INV-${inv?._id}`;
-  const uuid = randomUUID();
+  // ✅ يُعاد استخدام نفس UUID المحفوظ على الفاتورة (inv.einv_uuid) إن وُجد،
+  // بدل توليد UUID عشوائي جديد في كل مرة — لازم يكون ثابتاً كي تقدر فواتير
+  // الإرجاع المستقبلية تشير لنفس UUID الذي اعتمدته JoFotara
+  const uuid = inv?.einv_uuid || randomUUID();
 
   const einv = normalizeEInv(inv?.einv);
 
@@ -1280,6 +1505,204 @@ function buildUblInvoiceXml(inv) {
   return xml.trim();
 }
 
+/* =======================
+   E-INVOICING — RETURN INVOICE (فاتورة إرجاع / Credit Note)
+   ✅ JoFotara لا تستخدم جذر <CreditNote> منفصل — نفس جذر <Invoice> يُعاد
+   استخدامه لفواتير الإرجاع، والفرق الوحيد هو محتوى نصي داخل
+   <cbc:InvoiceTypeCode> (381 بدل 388) + كتلة <cac:BillingReference> إضافية
+   تُشير لرقم و UUID الفاتورة الأصلية. مصدر التأكيد: تكامل JoFotara الرسمي
+   المستخدم إنتاجياً من قبل تجار أردنيين حقيقيين (وحدة Odoo l10n_jo_edi،
+   account_edi_xml_ubl_21_jo.py + ubl_jo_templates.xml + ubl_20_templates.xml)
+   — نفس القالب الأساسي InvoiceType/CommonType لكلا النوعين، والفرق فقط
+   document_type_code = "381" لفواتير الإرجاع مقابل "388" للفاتورة العادية.
+   الكميات والأسعار موجبة دائماً (JoFotara لا تقبل كميات/أسعار سالبة على
+   بنود الفاتورة) — نفس ما تطبّقه بنود فاتورة الإرجاع هنا أصلاً.
+======================= */
+function buildUblCreditNoteXml(inv, originalInv) {
+  const issueDate = asIsoDate(
+    inv?.date || new Date().toISOString().slice(0, 10),
+  );
+  const invoiceId = inv?.invoice_number || `CR-${inv?._id}`;
+  const uuid = inv?.einv_uuid || randomUUID();
+
+  const einv = normalizeEInv(inv?.einv);
+
+  const supplierName = "مؤسسة شرق العالم العربي للنقل البري";
+  const supplierTax = String(process.env.EINV_SUPPLIER_TAXNO || "").trim();
+
+  const buyerName = String(inv?.company || "").trim();
+  const currency = einv.currency || "JOD";
+
+  const items = Array.isArray(inv?.items) ? inv.items : [];
+  const validItems = items.filter(
+    (x) => String(x?.desc || "").trim() || Number(x?.amount_jod || 0),
+  );
+
+  let typeCodeName = "011";
+  const scope = String(einv.invoiceScope || "").toUpperCase();
+  const payment = String(einv.paymentType || "").toUpperCase();
+  if (scope === "LOCAL" && payment === "CASH") typeCodeName = "011";
+  else if (scope === "LOCAL" && payment === "CREDIT") typeCodeName = "021";
+  else if (scope === "EXPORT" && payment === "CASH") typeCodeName = "111";
+  else if (scope === "EXPORT" && payment === "CREDIT") typeCodeName = "121";
+  else if (einv.invoiceType === "EXPORT") typeCodeName = "111";
+  else if (einv.invoiceType === "TRANSIT") typeCodeName = "311";
+  else if (einv.invoiceType === "FOREIGN") typeCodeName = "411";
+  else if (einv.invoiceType === "LOCAL") typeCodeName = "011";
+  else if (einv.invoiceType === "LOCAL_CASH") typeCodeName = "011";
+  else if (einv.invoiceType === "LOCAL_CREDIT") typeCodeName = "021";
+
+  const linesXml = validItems
+    .map((it, idx) => {
+      const lineId = idx + 1;
+      const desc = escapeXml(it?.desc || "");
+      // ✅ كميات وأسعار موجبة دائماً — JoFotara لا تقبل قيماً سالبة
+      const quantity = Math.abs(Number(it?.quantity || 0));
+      const unitPrice = Math.abs(Number(it?.unitPrice || 0));
+      const discount = Math.abs(Number(it?.discount || 0));
+      const gross = quantity * unitPrice;
+      const lineNet = Math.max(0, gross - discount);
+
+      return `
+  <cac:InvoiceLine>
+    <cbc:ID>${lineId}</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="PCE">${quantity.toFixed(3)}</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="${escapeXml(currency)}">${lineNet.toFixed(3)}</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>${desc}</cbc:Name>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="${escapeXml(currency)}">${unitPrice.toFixed(3)}</cbc:PriceAmount>
+      <cac:AllowanceCharge>
+        <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+        <cbc:AllowanceChargeReason>DISCOUNT</cbc:AllowanceChargeReason>
+        <cbc:Amount currencyID="${escapeXml(currency)}">${discount.toFixed(3)}</cbc:Amount>
+      </cac:AllowanceCharge>
+    </cac:Price>
+  </cac:InvoiceLine>`;
+    })
+    .join("");
+
+  const icvValue = String(inv?.invoice_number || inv?.serial || "1");
+  const incomeSourceSeq = String(einv.incomeSourceSeq || "").trim();
+
+  const grossTotal = validItems.reduce((sum, it) => {
+    const q = Math.abs(Number(it?.quantity || 0));
+    const up = Math.abs(Number(it?.unitPrice || 0));
+    return sum + q * up;
+  }, 0);
+  const discountTotal = validItems.reduce(
+    (sum, it) => sum + Math.abs(Number(it?.discount || 0)),
+    0,
+  );
+  const finalTotal = Math.max(0, grossTotal - discountTotal);
+
+  let buyerSchemeId = "";
+  if (einv.buyerIdType === "TIN") buyerSchemeId = "TN";
+  else if (einv.buyerIdType === "NIN") buyerSchemeId = "NIN";
+  else if (einv.buyerIdType === "OTHER") buyerSchemeId = "PN";
+
+  // ✅ cac:BillingReference — مرجع الفاتورة الأصلية (رقم + UUID)، إلزامي
+  // لأي فاتورة إرجاع وإلا ترفضها JoFotara. الترتيب (ID ثم UUID ثم
+  // DocumentDescription) مطابق حرفياً للقالب الرسمي (ubl_20 + ubl_jo).
+  const originalTotal = Number(originalInv?.value_jod || 0).toFixed(3);
+  const billingReferenceXml = `
+  <cac:BillingReference>
+    <cac:InvoiceDocumentReference>
+      <cbc:ID>${escapeXml(inv?.originalInvoiceNumber || originalInv?.invoice_number || "")}</cbc:ID>
+      <cbc:UUID>${escapeXml(inv?.originalInvoiceUUID || originalInv?.einv_uuid || "")}</cbc:UUID>
+      <cbc:DocumentDescription>${originalTotal}</cbc:DocumentDescription>
+    </cac:InvoiceDocumentReference>
+  </cac:BillingReference>`;
+
+  // ⚠️ ملاحظة: سبب حقيقي "InstructionNote" في قالب JoFotara الرسمي يُدرج
+  // داخل cac:PaymentMeans/cbc:PaymentMeansCode (غير مُطبّق حالياً في هذا
+  // النظام — لا يوجد PaymentMeansCode محفوظ). بدل تخمين قيمة كود الدفع،
+  // نستخدم cbc:Note (نفس الحقل المستخدم فعلياً وبنجاح مع الفواتير العادية
+  // في هذا الكود) لنقل سبب الإرجاع نصياً بأمان.
+  const reasonNote = String(inv?.returnReason || inv?.notes || "").trim();
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
+  <cbc:ProfileID>reporting:1.0</cbc:ProfileID>
+  <cbc:ID>${escapeXml(invoiceId)}</cbc:ID>
+  <cbc:UUID>${escapeXml(uuid)}</cbc:UUID>
+  <cbc:IssueDate>${escapeXml(issueDate)}</cbc:IssueDate>
+  <cbc:InvoiceTypeCode name="${typeCodeName}">381</cbc:InvoiceTypeCode>
+  ${reasonNote ? `<cbc:Note>${escapeXml(reasonNote)}</cbc:Note>` : ""}
+  <cbc:DocumentCurrencyCode>${escapeXml(currency)}</cbc:DocumentCurrencyCode>
+  <cbc:TaxCurrencyCode>${escapeXml(currency)}</cbc:TaxCurrencyCode>
+  ${billingReferenceXml}
+  <cac:AdditionalDocumentReference>
+    <cbc:ID>ICV</cbc:ID>
+    <cbc:UUID>${escapeXml(icvValue)}</cbc:UUID>
+  </cac:AdditionalDocumentReference>
+
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cac:PostalAddress>
+        <cac:Country>
+          <cbc:IdentificationCode>JO</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>${escapeXml(supplierTax)}</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>${escapeXml(supplierName)}</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      ${einv.buyerId ? `<cac:PartyIdentification><cbc:ID schemeID="${buyerSchemeId || 'PN'}">${escapeXml(einv.buyerId)}</cbc:ID></cac:PartyIdentification>` : ''}
+      <cac:PostalAddress>
+        ${einv.buyerPostalCode ? `<cbc:PostalZone>${escapeXml(einv.buyerPostalCode)}</cbc:PostalZone>` : ""}
+        ${einv.buyerCountrySubentityCode ? `<cbc:CountrySubentityCode>${escapeXml(einv.buyerCountrySubentityCode)}</cbc:CountrySubentityCode>` : ""}
+        <cac:Country>
+          <cbc:IdentificationCode>JO</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>${escapeXml(buyerName)}</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+    ${einv.buyerPhone ? `<cac:AccountingContact><cbc:Telephone>${escapeXml(einv.buyerPhone)}</cbc:Telephone></cac:AccountingContact>` : ""}
+  </cac:AccountingCustomerParty>
+
+  ${incomeSourceSeq ? `<cac:SellerSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification>
+        <cbc:ID>${escapeXml(incomeSourceSeq)}</cbc:ID>
+      </cac:PartyIdentification>
+    </cac:Party>
+  </cac:SellerSupplierParty>` : ""}
+  <cac:AllowanceCharge>
+    <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+    <cbc:AllowanceChargeReason>discount</cbc:AllowanceChargeReason>
+    <cbc:Amount currencyID="${escapeXml(currency)}">${discountTotal.toFixed(3)}</cbc:Amount>
+  </cac:AllowanceCharge>
+  <cac:LegalMonetaryTotal>
+    <cbc:TaxExclusiveAmount currencyID="${escapeXml(currency)}">${grossTotal.toFixed(3)}</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="${escapeXml(currency)}">${finalTotal.toFixed(3)}</cbc:TaxInclusiveAmount>
+    <cbc:AllowanceTotalAmount currencyID="${escapeXml(currency)}">${discountTotal.toFixed(3)}</cbc:AllowanceTotalAmount>
+    <cbc:PayableAmount currencyID="${escapeXml(currency)}">${finalTotal.toFixed(3)}</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+  ${linesXml}
+</Invoice>`;
+
+  return xml.trim();
+}
+
 async function submitInvoiceToEInv(invoiceId, res = null) {
   const inv = await Invoice.findById(invoiceId);
   if (!inv) {
@@ -1309,8 +1732,39 @@ async function submitInvoiceToEInv(invoiceId, res = null) {
     return { ok: false, error: err, status: 400 };
   }
 
+  // ✅ فاتورة إرجاع (CREDIT_NOTE): يجب أن تشير لـ UUID فعلي للفاتورة الأصلية
+  let originalInv = null;
+  if (inv.documentKind === "CREDIT_NOTE") {
+    if (!inv.originalInvoiceId || !inv.originalInvoiceUUID) {
+      const err = "Return invoice is missing the original invoice reference (UUID)";
+      inv.einv_status = "failed";
+      inv.einv_error = err;
+      await inv.save();
+      if (res) return res.status(400).json({ error: err });
+      return { ok: false, error: err, status: 400 };
+    }
+    originalInv = await Invoice.findById(inv.originalInvoiceId);
+    if (!originalInv) {
+      const err = "Original invoice referenced by this return invoice no longer exists";
+      inv.einv_status = "failed";
+      inv.einv_error = err;
+      await inv.save();
+      if (res) return res.status(400).json({ error: err });
+      return { ok: false, error: err, status: 400 };
+    }
+  }
+
+  // ✅ UUID ثابت لكل فاتورة — يُنشأ مرة واحدة فقط ويُحفظ (مطلوب لاحقاً كمرجع
+  // لأي فاتورة إرجاع تُنشأ على هذه الفاتورة)
+  if (!inv.einv_uuid) {
+    inv.einv_uuid = randomUUID();
+  }
+
   try {
-    const xml = buildUblInvoiceXml(inv);
+    const xml =
+      inv.documentKind === "CREDIT_NOTE"
+        ? buildUblCreditNoteXml(inv, originalInv)
+        : buildUblInvoiceXml(inv);
     const invoiceBase64 = Buffer.from(xml, "utf8").toString("base64");
 
     const urlRaw = String(process.env.EINV_URL || "").trim();

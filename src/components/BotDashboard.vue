@@ -7,6 +7,7 @@ import InvoiceCreateModal from "./InvoiceCreateModal.vue";
 import WaybillCreateModal from "./WaybillCreateModal.vue";
 import VoucherCreateModal from "./VoucherCreateModal.vue"; // ✅ جديد
 import PreviewModal from "./dashboard/PreviewModal.vue";
+import ReturnInvoiceModal from "./dashboard/ReturnInvoiceModal.vue";
 
 // ✅ أفضل داخل Electron
 const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
@@ -169,6 +170,20 @@ const botStatus = ref({ running: false, pid: null });
 ========================= */
 const showInvoicePreview = ref(false);
 const selectedInvoice = ref(null);
+
+// ✅ فاتورة إرجاع (Return Invoice / Credit Note)
+const showReturnModal = ref(false);
+const returnModalInvoiceId = ref(null);
+
+function openReturnModal(inv) {
+  returnModalInvoiceId.value = inv?._id || null;
+  showReturnModal.value = true;
+}
+
+async function onReturnInvoiceCreated() {
+  showReturnModal.value = false;
+  await fetchInvoices();
+}
 const invoicePreviewHtml = ref("");
 const invoiceTemplateCache = ref(null);
 const invoiceFrameRef = ref(null);
@@ -1372,7 +1387,15 @@ onMounted(async () => {
 
               <tbody>
                 <tr v-for="inv in pagedInvoices" :key="inv._id">
-                  <td class="cell-ellipsis">{{ inv.invoice_number }}</td>
+                  <td class="cell-ellipsis">
+                    {{ inv.invoice_number }}
+                    <span
+                      v-if="inv.documentKind === 'CREDIT_NOTE'"
+                      class="badge badge--gray"
+                      title="فاتورة إرجاع"
+                      >إرجاع</span
+                    >
+                  </td>
                   <td class="td-clip cell-ellipsis" :title="inv.company">
                     {{ inv.company }}
                   </td>
@@ -1405,6 +1428,14 @@ onMounted(async () => {
                     >
                       ✏️ تعديل
                     </RouterLink>
+
+                    <button
+                      v-if="inv.documentKind !== 'CREDIT_NOTE'"
+                      class="btn btn--secondary btn--small"
+                      @click="openReturnModal(inv)"
+                    >
+                      🔄 إنشاء فاتورة إرجاع
+                    </button>
 
                     <button
                       class="btn btn--danger btn--small"
@@ -1457,6 +1488,13 @@ onMounted(async () => {
           :file-name="(selectedInvoice?.invoice_number || 'invoice') + '.pdf'"
           :invoice="selectedInvoice"
           @close="showInvoicePreview = false"
+        />
+
+        <ReturnInvoiceModal
+          v-if="showReturnModal"
+          :invoice-id="returnModalInvoiceId"
+          @close="showReturnModal = false"
+          @created="onReturnInvoiceCreated"
         />
       </section>
 
