@@ -1777,11 +1777,6 @@ function buildUblCreditNoteXml(inv, originalInv) {
     ${einv.buyerPhone ? `<cac:AccountingContact><cbc:Telephone>${escapeXml(einv.buyerPhone)}</cbc:Telephone></cac:AccountingContact>` : ""}
   </cac:AccountingCustomerParty>
 
-  <cac:PaymentMeans>
-    <cbc:PaymentMeansCode listID="UN/ECE 4461">${resolvePaymentMeansCode(einv.paymentType)}</cbc:PaymentMeansCode>
-    <cbc:InstructionNote>${escapeXml(reasonNote)}</cbc:InstructionNote>
-  </cac:PaymentMeans>
-
   ${incomeSourceSeq ? `<cac:SellerSupplierParty>
     <cac:Party>
       <cac:PartyIdentification>
@@ -1789,6 +1784,11 @@ function buildUblCreditNoteXml(inv, originalInv) {
       </cac:PartyIdentification>
     </cac:Party>
   </cac:SellerSupplierParty>` : ""}
+
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode listID="UN/ECE 4461">${resolvePaymentMeansCode(einv.paymentType)}</cbc:PaymentMeansCode>
+    <cbc:InstructionNote>${escapeXml(reasonNote)}</cbc:InstructionNote>
+  </cac:PaymentMeans>
   <cac:AllowanceCharge>
     <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
     <cbc:AllowanceChargeReason>discount</cbc:AllowanceChargeReason>
