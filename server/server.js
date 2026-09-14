@@ -1602,7 +1602,20 @@ function buildUblInvoiceXml(inv) {
    document_type_code = "381" لفواتير الإرجاع مقابل "388" للفاتورة العادية.
    الكميات والأسعار موجبة دائماً (JoFotara لا تقبل كميات/أسعار سالبة على
    بنود الفاتورة) — نفس ما تطبّقه بنود فاتورة الإرجاع هنا أصلاً.
+
+   ✅ تأكيد حيّ (خطأ JoFotara الفعلي reasonOfNote على الإنتاج): سبب الإرجاع
+   يجب أن يكون في cac:PaymentMeans/cbc:InstructionNote، وليس cbc:Note.
+   قيمة cbc:PaymentMeansCode مصدرها نفس وحدة Odoo l10n_jo_edi الرسمية —
+   _get_invoice_payment_means_vals_list في account_edi_xml_ubl_21_jo.py:
+   قيمة ثابتة 10 (listID="UN/ECE 4461") تُرسل لكل فاتورة إرجاع (move_type
+   'out_refund') بصرف النظر عن CASH/CREDIT — لا يوجد تمييز رسمي حسب طريقة
+   الدفع؛ الفواتير العادية لا تُرسل PaymentMeans إطلاقاً (نفس سلوك هذا
+   المشروع حالياً في buildUblInvoiceXml — لا تغيير هناك).
 ======================= */
+function resolvePaymentMeansCode(_paymentType) {
+  return "10";
+}
+
 function buildUblCreditNoteXml(inv, originalInv) {
   const issueDate = asIsoDate(
     inv?.date || new Date().toISOString().slice(0, 10),
@@ -1700,11 +1713,11 @@ function buildUblCreditNoteXml(inv, originalInv) {
     </cac:InvoiceDocumentReference>
   </cac:BillingReference>`;
 
-  // ⚠️ ملاحظة: سبب حقيقي "InstructionNote" في قالب JoFotara الرسمي يُدرج
-  // داخل cac:PaymentMeans/cbc:PaymentMeansCode (غير مُطبّق حالياً في هذا
-  // النظام — لا يوجد PaymentMeansCode محفوظ). بدل تخمين قيمة كود الدفع،
-  // نستخدم cbc:Note (نفس الحقل المستخدم فعلياً وبنجاح مع الفواتير العادية
-  // في هذا الكود) لنقل سبب الإرجاع نصياً بأمان.
+  // ✅ سبب الإرجاع الفعلي المعتمد من JoFotara يُرسل في
+  // cac:PaymentMeans/cbc:InstructionNote (مؤكَّد من خطأ JoFotara الحي
+  // "reasonOfNote is required" على فاتورة إرجاع حقيقية رُفضت لغيابه).
+  // cbc:Note أدناه يبقى فقط كملاحظة نصية بشرية إضافية — JoFotara لا تعتمد
+  // عليه لسبب الإرجاع.
   const reasonNote = String(inv?.returnReason || inv?.notes || "").trim();
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1763,6 +1776,11 @@ function buildUblCreditNoteXml(inv, originalInv) {
     </cac:Party>
     ${einv.buyerPhone ? `<cac:AccountingContact><cbc:Telephone>${escapeXml(einv.buyerPhone)}</cbc:Telephone></cac:AccountingContact>` : ""}
   </cac:AccountingCustomerParty>
+
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode listID="UN/ECE 4461">${resolvePaymentMeansCode(einv.paymentType)}</cbc:PaymentMeansCode>
+    <cbc:InstructionNote>${escapeXml(reasonNote)}</cbc:InstructionNote>
+  </cac:PaymentMeans>
 
   ${incomeSourceSeq ? `<cac:SellerSupplierParty>
     <cac:Party>
