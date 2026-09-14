@@ -858,7 +858,11 @@ async function computeRefundInfo(originalInvoiceId) {
   const returnedQtyByIndex = new Array(items.length).fill(0);
   const returnedAmtByIndex = new Array(items.length).fill(0);
 
+  // ✅ فاتورة إرجاع تُخصم من المتبقي القابل للإرجاع فقط إذا اعتُمدت فعلياً
+  // عبر JoFotara (einv_status === "submitted" — نفس معيار isInvoiceEinvApproved).
+  // pending/failed/draft تبقى ظاهرة في السجل (returns) لكن لا تستهلك الكمية.
   for (const r of returns) {
+    if (!isInvoiceEinvApproved(r)) continue;
     for (const it of Array.isArray(r.items) ? r.items : []) {
       const idx = Number(it.originalItemIndex);
       if (Number.isInteger(idx) && idx >= 0 && idx < items.length) {
