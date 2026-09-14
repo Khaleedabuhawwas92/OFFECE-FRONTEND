@@ -23,6 +23,9 @@ const submitError = ref("");
 const createdInvoice = ref(null);
 const einvSubmitting = ref(false);
 const einvResult = ref("");
+// ✅ true عندما يعرض createdInvoice فاتورة إرجاع "pending" موجودة مسبقاً
+// (تمت متابعتها) بدل فاتورة تم إنشاؤها للتو في هذه الجلسة
+const wasExistingPending = ref(false);
 
 function close() {
   emit("close");
@@ -153,7 +156,14 @@ async function submitReturn() {
       `${API_BASE}/api/invoices/${props.invoiceId}/returns`,
       payload,
     );
+    if (res.data?.existingPending) {
+      // ✅ يوجد فاتورة إرجاع pending مسبقاً — لا مستند جديد، نعرض الموجودة
+      createdInvoice.value = res.data.returnInvoice;
+      wasExistingPending.value = true;
+      return;
+    }
     createdInvoice.value = res.data;
+    wasExistingPending.value = false;
     emit("created", res.data);
   } catch (e) {
     console.error("create return invoice error:", e);
@@ -162,6 +172,13 @@ async function submitReturn() {
   } finally {
     submitting.value = false;
   }
+}
+
+// ✅ "متابعة / تعديل" على مرتجع pending من سجل المرتجعات السابقة —
+// يعرض نفس لوحة الإجراء (إرسال إلى JoFotara) بدل إنشاء مرتجع جديد
+function continueExistingReturn(r) {
+  createdInvoice.value = r;
+  wasExistingPending.value = true;
 }
 
 async function submitToJofotara() {
@@ -202,7 +219,11 @@ onMounted(fetchInfo);
       <div v-else class="ri-body">
         <!-- ===== نجاح الإنشاء ===== -->
         <div v-if="createdInvoice" class="ri-success">
-          <p>
+          <p v-if="wasExistingPending">
+            ⏳ يوجد فاتورة إرجاع معلقة لهذه الفاتورة — رقم:
+            <strong dir="ltr">{{ createdInvoice.invoice_number }}</strong>
+          </p>
+          <p v-else>
             ✅ تم إنشاء فاتورة الإرجاع بنجاح — رقم:
             <strong dir="ltr">{{ createdInvoice.invoice_number }}</strong>
           </p>
@@ -277,6 +298,14 @@ onMounted(fetchInfo);
                   >{{ r.einv_status }}</span
                 >
                 <span v-if="r.returnReason" class="muted"> — {{ r.returnReason }}</span>
+                <button
+                  v-if="r.einv_status === 'pending'"
+                  class="btn btn--secondary btn--small ri-continue-btn"
+                  type="button"
+                  @click="continueExistingReturn(r)"
+                >
+                  متابعة / تعديل
+                </button>
               </li>
             </ul>
           </div>
@@ -471,6 +500,9 @@ onMounted(fetchInfo);
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.ri-continue-btn {
+  margin-right: 8px;
 }
 
 .ri-items-toolbar {

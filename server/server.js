@@ -941,6 +941,21 @@ app.post("/api/invoices/:id/returns", async (req, res) => {
       return res.status(404).json({ error: "الفاتورة الأصلية غير موجودة" });
     const { original, items: refundableItems } = info;
 
+    // ✅ يُسمح بفاتورة إرجاع "pending" واحدة فقط في نفس الوقت لكل فاتورة
+    // أصلية — فواتير الإرجاع "submitted" متعددة مسموحة دائماً (لا تدخل هذا
+    // الفحص). لا يُنشأ مستند/رقم CR جديد إن وُجدت واحدة pending بالفعل.
+    const existingPending = await Invoice.findOne({
+      documentKind: "CREDIT_NOTE",
+      originalInvoiceId: original._id,
+      einv_status: "pending",
+    }).sort({ created_at: -1 });
+    if (existingPending) {
+      return res.status(200).json({
+        existingPending: true,
+        returnInvoice: existingPending,
+      });
+    }
+
     const reason = String(req.body?.reason || "").trim();
     if (!reason)
       return res.status(400).json({ error: "سبب الإرجاع مطلوب" });
