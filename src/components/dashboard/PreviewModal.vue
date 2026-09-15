@@ -26,7 +26,134 @@ const MIN_SCALE = 60;
 const MAX_SCALE = 160;
 const AUTO_FIT_MAX = 100;
 
+// ✅ معاينة فاتورة إرجاع (CREDIT_NOTE): تُبنى بالكامل من بيانات الفاتورة
+// المخزّنة (invoice_number/originalInvoiceNumber/returnReason/items/...)
+// — نفس البيانات المعروضة في تبويب "فواتير الإرجاع" — وليس من قالب
+// الفاتورة العادية (invoice_template.html، مصمم لفواتير النقل بحقول
+// السائق/المركبة التي لا تنطبق هنا). تبقى صحيحة حتى لو XML الموقّع لم
+// يشمل حقول الإرجاع (لا تُوجد أصلاً فيه)، وتُكمَّل بـ QR الرسمي إن وُجد.
+function buildCreditNoteHtml(inv) {
+  const esc = (v) =>
+    String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  const val = (v) => {
+    const s = String(v ?? "").trim();
+    return s ? esc(s) : "-";
+  };
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(3) : "0.000";
+  };
+
+  const STATUS_LABELS = {
+    submitted: "مقبولة (JoFotara)",
+    pending: "بانتظار الإرسال",
+    failed: "فشل الإرسال",
+    draft: "محلية",
+  };
+  const statusKey = String(inv?.einv_status || "");
+  const statusLabel = STATUS_LABELS[statusKey] || val(statusKey);
+  const statusColor =
+    statusKey === "submitted" ? "#166534" : statusKey === "failed" ? "#991b1b" : "#9a3412";
+  const statusBg =
+    statusKey === "submitted" ? "#dcfce7" : statusKey === "failed" ? "#fee2e2" : "#ffedd5";
+
+  const items = Array.isArray(inv?.items) ? inv.items : [];
+  const itemsRows = items
+    .map((it) => {
+      const qty = Number(it?.quantity || 0);
+      const price = Number(it?.unitPrice || 0);
+      const lineTotal = Number(it?.lineNet ?? it?.amount_jod ?? qty * price);
+      return `<tr>
+        <td class="r">${val(it?.desc)}</td>
+        <td>${num(qty)}</td>
+        <td>${num(price)}</td>
+        <td>${num(lineTotal)}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const qrImg = inv?.einv_qr
+    ? `<img class="qr" src="data:image/png;base64,${inv.einv_qr}" alt="QR">`
+    : "";
+
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>فاتورة إرجاع ${esc(inv?.invoice_number || "")}</title>
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  html, body { margin:0; padding:0; background:#fff; }
+  body { font-family: Tahoma, Arial, sans-serif; direction: rtl; color:#111; font-size:12px; line-height:1.5; }
+  .page { width:210mm; min-height:297mm; padding:12mm; }
+  .title-row { display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #b71c1c; padding-bottom:10px; margin-bottom:14px; }
+  .title-row h1 { font-size:20px; margin:0; color:#b71c1c; }
+  .cr-no { font-size:14px; font-weight:700; direction:ltr; }
+  .ref-line { background:#fff3e0; border:1px solid #ffcc80; border-radius:6px; padding:8px 12px; margin-bottom:14px; font-size:13px; font-weight:700; }
+  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 24px; margin-bottom:14px; }
+  .info-row { display:flex; border-bottom:1px dashed #ddd; padding:6px 0; }
+  .info-row .l { width:40%; color:#555; font-weight:700; }
+  .info-row .v { width:60%; }
+  .status-badge { display:inline-block; padding:3px 10px; border-radius:999px; font-weight:700; font-size:12px; background:${statusBg}; color:${statusColor}; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:12px; }
+  th, td { border:1px solid #ccc; padding:7px; text-align:center; }
+  th { background:#f5f5f5; font-weight:700; }
+  td.r { text-align:right; }
+  .totals { display:flex; justify-content:flex-end; margin-top:14px; }
+  .totals .box { text-align:left; min-width:220px; border:2px solid #b71c1c; border-radius:6px; padding:10px 14px; }
+  .totals .box .label { color:#555; font-size:12px; }
+  .totals .box .amount { font-size:18px; font-weight:800; color:#b71c1c; }
+  .qr-row { margin-top:16px; text-align:center; }
+  .qr { width:130px; height:130px; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="title-row">
+      <h1>فاتورة إرجاع</h1>
+      <span class="cr-no">${val(inv?.invoice_number)}</span>
+    </div>
+
+    <div class="ref-line">مرجع الفاتورة الأصلية: ${val(inv?.originalInvoiceNumber)}</div>
+
+    <div class="info-grid">
+      <div class="info-row"><span class="l">الشركة / العميل:</span><span class="v">${val(inv?.company)}</span></div>
+      <div class="info-row"><span class="l">تاريخ الإرجاع:</span><span class="v">${val(inv?.date)}</span></div>
+      <div class="info-row"><span class="l">سبب الإرجاع:</span><span class="v">${val(inv?.returnReason)}</span></div>
+      <div class="info-row"><span class="l">حالة JoFotara:</span><span class="v"><span class="status-badge">${esc(statusLabel)}</span></span></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>البند</th><th>الكمية المرتجعة</th><th>سعر الوحدة</th><th>الإجمالي</th></tr>
+      </thead>
+      <tbody>
+        ${itemsRows || `<tr><td colspan="4">لا توجد بنود</td></tr>`}
+      </tbody>
+    </table>
+
+    <div class="totals">
+      <div class="box">
+        <div class="label">إجمالي فاتورة الإرجاع</div>
+        <div class="amount">${num(inv?.value_jod)} JOD</div>
+      </div>
+    </div>
+
+    ${qrImg ? `<div class="qr-row">${qrImg}</div>` : ""}
+  </div>
+</body>
+</html>`;
+}
+
 const srcDoc = computed(() => {
+  if (props.invoice?.documentKind === "CREDIT_NOTE") {
+    return buildCreditNoteHtml(props.invoice);
+  }
+
   const h = String(props.html || "").trim();
   if (!h) return "<!doctype html><html><body></body></html>";
   if (/<html[\s>]/i.test(h)) return h;
