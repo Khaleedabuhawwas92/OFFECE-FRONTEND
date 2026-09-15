@@ -470,8 +470,12 @@ function sortRows(rows, state) {
    Search + Pagination + Filters
 ========================= */
 const filteredInvoices = computed(() => {
-  let base = (invoices.value || []).filter((inv) =>
-    rowMatchesSearch(inv, invoicesSearch.value),
+  // ✅ فواتير الإرجاع (CREDIT_NOTE) لها تبويبها الخاص "فواتير الإرجاع" —
+  // لا تُعرض ضمن تبويب الفواتير العادية
+  let base = (invoices.value || []).filter(
+    (inv) =>
+      inv.documentKind !== "CREDIT_NOTE" &&
+      rowMatchesSearch(inv, invoicesSearch.value),
   );
 
   const key = invDateMode.value; // created_at | date
@@ -482,6 +486,40 @@ const filteredInvoices = computed(() => {
 
   return sortRows(base, invSort.value);
 });
+
+/* =========================
+   Return Invoices tab (فواتير الإرجاع — CREDIT_NOTE فقط)
+========================= */
+const returnInvoicesSearch = ref("");
+
+const filteredReturnInvoices = computed(() => {
+  const base = (invoices.value || []).filter(
+    (inv) =>
+      inv.documentKind === "CREDIT_NOTE" &&
+      rowMatchesSearch(inv, returnInvoicesSearch.value),
+  );
+  return sortRows(base, { key: "created_at", dir: "desc" });
+});
+
+const einvSubmittingRow = ref(null); // _id الفاتورة الجاري إرسالها حالياً
+
+async function submitReturnInvoiceToJofotara(inv) {
+  if (!inv?._id || einvSubmittingRow.value) return;
+  einvSubmittingRow.value = inv._id;
+  try {
+    await axios.post(`${API_BASE}/api/einv/submit/${inv._id}`);
+    await fetchInvoices();
+  } catch (err) {
+    console.error("einv submit error:", err);
+    alert(
+      "❌ فشل الإرسال إلى JoFotara: " +
+        (err?.response?.data?.error || err?.response?.data?.message || err.message),
+    );
+    await fetchInvoices();
+  } finally {
+    einvSubmittingRow.value = null;
+  }
+}
 
 const invTotalPages = computed(() => {
   const total = filteredInvoices.value.length;
@@ -1273,6 +1311,15 @@ onMounted(async () => {
         <span class="tab-label">فواتير التصدير</span>
         <span class="tab-badge">{{ filteredInvoices.length }}</span>
       </button>
+
+      <button
+        class="tab"
+        :class="{ 'tab--active': activeTab === 'returns' }"
+        @click="activeTab = 'returns'"
+      >
+        <span class="tab-label">فواتير الإرجاع</span>
+        <span class="tab-badge">{{ filteredReturnInvoices.length }}</span>
+      </button>
     </nav>
 
     <div class="main-area">
@@ -1528,6 +1575,123 @@ onMounted(async () => {
           @close="showReturnModal = false"
           @created="onReturnInvoiceCreated"
         />
+      </section>
+
+      <!-- =================== RETURN INVOICES (فواتير الإرجاع) =================== -->
+      <section v-else-if="activeTab === 'returns'" class="section">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <h2 class="section-title">فواتير الإرجاع</h2>
+            <div class="section-hint">فواتير إرجاع (CREDIT_NOTE) فقط</div>
+          </div>
+
+          <div class="header-actions">
+            <button
+              class="btn btn--secondary"
+              @click="fetchInvoices"
+              :disabled="loadingInvoices"
+            >
+              🔄 تحديث
+            </button>
+          </div>
+        </div>
+
+        <div v-if="loadingInvoices" class="status-text">
+          جاري تحميل فواتير الإرجاع...
+        </div>
+
+        <div v-else class="table-card">
+          <div class="table-tools">
+            <div class="search-wrap">
+              <input
+                v-model="returnInvoicesSearch"
+                class="search-input"
+                placeholder="🔎 ابحث برقم فاتورة الإرجاع أو الفاتورة الأصلية..."
+              />
+              <button
+                v-if="returnInvoicesSearch"
+                class="clear-btn"
+                title="مسح البحث"
+                @click="returnInvoicesSearch = ''"
+              >
+                ✖
+              </button>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="table table--fixed table--invoices">
+              <thead>
+                <tr>
+                  <th>رقم فاتورة الإرجاع</th>
+                  <th>رقم الفاتورة الأصلية</th>
+                  <th>الشركة</th>
+                  <th>التاريخ</th>
+                  <th>القيمة</th>
+                  <th>سبب الإرجاع</th>
+                  <th>الحالة</th>
+                  <th>العمليات</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr v-for="inv in filteredReturnInvoices" :key="inv._id">
+                  <td class="cell-ellipsis" dir="ltr">{{ inv.invoice_number }}</td>
+                  <td class="cell-ellipsis" dir="ltr">{{ inv.originalInvoiceNumber }}</td>
+                  <td class="td-clip cell-ellipsis" :title="inv.company">
+                    {{ inv.company }}
+                  </td>
+                  <td class="cell-ellipsis">{{ inv.date }}</td>
+                  <td class="cell-ellipsis">{{ inv.value_jod }}</td>
+                  <td class="td-clip cell-ellipsis" :title="inv.returnReason">
+                    {{ inv.returnReason }}
+                  </td>
+                  <td class="cell-ellipsis">
+                    <span
+                      class="badge"
+                      :class="{
+                        'badge--green': inv.einv_status === 'submitted',
+                        'badge--orange': inv.einv_status === 'pending',
+                        'badge--red': inv.einv_status === 'failed',
+                      }"
+                      >{{ inv.einv_status }}</span
+                    >
+                  </td>
+                  <td class="actions-cell">
+                    <button
+                      class="btn btn--secondary btn--small"
+                      @click="openInvoicePreview(inv)"
+                    >
+                      👁 معاينة
+                    </button>
+
+                    <button
+                      v-if="inv.einv_status === 'pending'"
+                      class="btn btn--jofotara-small btn--small"
+                      :disabled="einvSubmittingRow === inv._id"
+                      @click="submitReturnInvoiceToJofotara(inv)"
+                    >
+                      {{ einvSubmittingRow === inv._id ? "⏳ ..." : "📤 إرسال إلى JoFotara" }}
+                    </button>
+
+                    <button
+                      v-else-if="inv.einv_status === 'failed'"
+                      class="btn btn--danger btn--small"
+                      :disabled="einvSubmittingRow === inv._id"
+                      @click="submitReturnInvoiceToJofotara(inv)"
+                    >
+                      {{ einvSubmittingRow === inv._id ? "⏳ ..." : "🔁 إعادة إرسال" }}
+                    </button>
+                  </td>
+                </tr>
+
+                <tr v-if="filteredReturnInvoices.length === 0">
+                  <td colspan="8" class="table-empty">لا توجد فواتير إرجاع.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- =================== WAYBILLS =================== -->
@@ -2668,5 +2832,17 @@ onMounted(async () => {
 .badge--red {
   background: #fee2e2;
   color: #991b1b;
+}
+.btn--jofotara-small {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
+}
+.btn--jofotara-small:hover {
+  background: #0d5f58;
+}
+.btn--jofotara-small:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

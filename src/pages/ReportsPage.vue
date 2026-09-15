@@ -92,15 +92,26 @@ async function fetchAll() {
   loading.value = true;
   errorMessage.value = "";
   try {
-    const [invRes, wbRes] = await Promise.all([
+    const [invRes, wbRes, returnsSummaryRes] = await Promise.all([
       axios.get(`${API_BASE}/api/invoices?limit=2000`),
       axios.get(`${API_BASE}/api/waybills?limit=2000`),
+      axios.get(`${API_BASE}/api/invoices/returns-summary`),
     ]);
     // ✅ التقارير العادية (عدد/إجمالي الفواتير، بطاقات الأشهر، إجمالي
-    // الشركات) يجب ألا تشمل فواتير الإرجاع (CREDIT_NOTE) — تُستثنى هنا
-    // مركزياً فور الجلب كي تبقى كل الحسابات اللاحقة في هذه الصفحة متّسقة
+    // الشركات) يجب ألا تشمل: فواتير الإرجاع (CREDIT_NOTE) نفسها، ولا
+    // الفواتير الأصلية المرتجعة بالكامل (returns-summary === "FULL") —
+    // نفس مصدر الحساب المستخدم في BotDashboard، بدون إعادة حسابه هنا.
+    // المرتجعة جزئياً (PARTIAL) تبقى ظاهرة كما هي دون خصم أي مبلغ.
+    const returnsSummary =
+      returnsSummaryRes.data && typeof returnsSummaryRes.data === "object"
+        ? returnsSummaryRes.data
+        : {};
     const rawInvoices = Array.isArray(invRes.data) ? invRes.data : [];
-    invoices.value = rawInvoices.filter((x) => x?.documentKind !== "CREDIT_NOTE");
+    invoices.value = rawInvoices.filter(
+      (x) =>
+        x?.documentKind !== "CREDIT_NOTE" &&
+        returnsSummary[x?._id] !== "FULL",
+    );
     waybills.value = Array.isArray(wbRes.data) ? wbRes.data : [];
     await fetchOfficeCommission();
   } catch (e) {

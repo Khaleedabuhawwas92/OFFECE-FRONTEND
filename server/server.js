@@ -457,62 +457,69 @@ app.get("/api/invoices", async (req, res) => {
   }
 });
 
-// ✅ ملخّص حالة الإرجاع لكل الفواتير الأصلية دفعة واحدة (لتلوين صفوف
-// الجدول في BotDashboard) — نفس قاعدة computeRefundInfo تماماً (فواتير
-// إرجاع "submitted" فقط تُستهلك من الكمية)، بدون استدعاء computeRefundInfo
-// لكل فاتورة على حدة (N+1) — يُحسب بمرور واحد على كل فواتير الإرجاع
-// المعتمدة فقط.
+// ✅ ملخّص حالة الإرجاع لكل الفواتير الأصلية دفعة واحدة — نفس قاعدة
+// computeRefundInfo تماماً (فواتير إرجاع "submitted" فقط تُستهلك من
+// الكمية)، بدون استدعاء computeRefundInfo لكل فاتورة على حدة (N+1) — يُحسب
+// بمرور واحد على كل فواتير الإرجاع المعتمدة فقط. مُستخدم من:
+// - GET /api/invoices/returns-summary (تلوين صفوف BotDashboard)
+// - GET /api/reports/office-commission (استبعاد الفواتير المرتجعة بالكامل)
+// حساب واحد يُعاد استخدامه بدل تكراره.
+async function computeReturnsSummaryMap() {
+  const submittedReturns = await Invoice.find(
+    { documentKind: "CREDIT_NOTE", einv_status: "submitted" },
+    { originalInvoiceId: 1, items: 1 },
+  ).lean();
+
+  if (!submittedReturns.length) return {};
+
+  const returnedQtyByOriginal = new Map(); // originalId -> Map(itemIndex -> qty)
+  for (const r of submittedReturns) {
+    const origId = String(r.originalInvoiceId || "");
+    if (!origId) continue;
+    let m = returnedQtyByOriginal.get(origId);
+    if (!m) {
+      m = new Map();
+      returnedQtyByOriginal.set(origId, m);
+    }
+    for (const it of Array.isArray(r.items) ? r.items : []) {
+      const idx = Number(it.originalItemIndex);
+      if (Number.isInteger(idx) && idx >= 0) {
+        m.set(idx, (m.get(idx) || 0) + Number(it.quantity || 0));
+      }
+    }
+  }
+
+  const originals = await Invoice.find(
+    { _id: { $in: [...returnedQtyByOriginal.keys()] } },
+    { items: 1 },
+  ).lean();
+
+  const summary = {};
+  for (const orig of originals) {
+    const returnedByIdx = returnedQtyByOriginal.get(String(orig._id));
+    const items = Array.isArray(orig.items) ? orig.items : [];
+    if (!items.length) continue;
+
+    let fullyReturnedCount = 0;
+    let anyReturned = false;
+    for (let idx = 0; idx < items.length; idx++) {
+      const qty = Number(items[idx].quantity || 0);
+      const returnedQty = returnedByIdx.get(idx) || 0;
+      if (returnedQty > 0) anyReturned = true;
+      if (qty > 0 && returnedQty + 1e-9 >= qty) fullyReturnedCount++;
+    }
+
+    if (!anyReturned) continue;
+    summary[String(orig._id)] =
+      fullyReturnedCount === items.length ? "FULL" : "PARTIAL";
+  }
+
+  return summary;
+}
+
 app.get("/api/invoices/returns-summary", async (req, res) => {
   try {
-    const submittedReturns = await Invoice.find(
-      { documentKind: "CREDIT_NOTE", einv_status: "submitted" },
-      { originalInvoiceId: 1, items: 1 },
-    ).lean();
-
-    if (!submittedReturns.length) return res.json({});
-
-    const returnedQtyByOriginal = new Map(); // originalId -> Map(itemIndex -> qty)
-    for (const r of submittedReturns) {
-      const origId = String(r.originalInvoiceId || "");
-      if (!origId) continue;
-      let m = returnedQtyByOriginal.get(origId);
-      if (!m) {
-        m = new Map();
-        returnedQtyByOriginal.set(origId, m);
-      }
-      for (const it of Array.isArray(r.items) ? r.items : []) {
-        const idx = Number(it.originalItemIndex);
-        if (Number.isInteger(idx) && idx >= 0) {
-          m.set(idx, (m.get(idx) || 0) + Number(it.quantity || 0));
-        }
-      }
-    }
-
-    const originals = await Invoice.find(
-      { _id: { $in: [...returnedQtyByOriginal.keys()] } },
-      { items: 1 },
-    ).lean();
-
-    const summary = {};
-    for (const orig of originals) {
-      const returnedByIdx = returnedQtyByOriginal.get(String(orig._id));
-      const items = Array.isArray(orig.items) ? orig.items : [];
-      if (!items.length) continue;
-
-      let fullyReturnedCount = 0;
-      let anyReturned = false;
-      for (let idx = 0; idx < items.length; idx++) {
-        const qty = Number(items[idx].quantity || 0);
-        const returnedQty = returnedByIdx.get(idx) || 0;
-        if (returnedQty > 0) anyReturned = true;
-        if (qty > 0 && returnedQty + 1e-9 >= qty) fullyReturnedCount++;
-      }
-
-      if (!anyReturned) continue;
-      summary[String(orig._id)] =
-        fullyReturnedCount === items.length ? "FULL" : "PARTIAL";
-    }
-
+    const summary = await computeReturnsSummaryMap();
     res.json(summary);
   } catch (e) {
     console.error("GET /api/invoices/returns-summary error:", e);
@@ -1167,7 +1174,15 @@ app.get("/api/reports/office-commission", async (req, res) => {
       if (to) query.date.$lte = to;
     }
 
-    const invoices = await Invoice.find(query).lean();
+    let invoices = await Invoice.find(query).lean();
+
+    // ✅ الفواتير الأصلية المرتجعة بالكامل (submitted CREDIT_NOTE يغطي كل
+    // بنودها) تُستبعد أيضاً من عمولة المكتب — نفس المصدر المستخدم في
+    // GET /api/invoices/returns-summary، بدون إعادة حساب الإرجاع هنا
+    const returnsSummary = await computeReturnsSummaryMap();
+    invoices = invoices.filter(
+      (inv) => returnsSummary[String(inv._id)] !== "FULL",
+    );
 
     // ✅ قواعد محسّنة ومشتقة مباشرة من بنود الفاتورة (تشمل كل الفواتير تلقائياً):
     // 1) بند وصفه (بعد normalize) يحتوي على "عمولة مكتب" أو "عمولة المكتب"
