@@ -1556,19 +1556,6 @@ onMounted(async () => {
           </div>
         </div>
 
-        <PreviewModal
-          v-if="showInvoicePreview"
-          :title="
-            selectedInvoice
-              ? `معاينة الفاتورة (${selectedInvoice.invoice_number || ''})`
-              : 'معاينة الفاتورة'
-          "
-          :html="invoicePreviewHtml"
-          :file-name="(selectedInvoice?.invoice_number || 'invoice') + '.pdf'"
-          :invoice="selectedInvoice"
-          @close="showInvoicePreview = false"
-        />
-
         <ReturnInvoiceModal
           v-if="showReturnModal"
           :invoice-id="returnModalInvoiceId"
@@ -2157,6 +2144,21 @@ onMounted(async () => {
       :title="selectedVoucher ? `معاينة السند (${selectedVoucher.serial_no})` : 'معاينة السند'"
       :html="voucherPreviewHtml"
       @close="showVoucherPreview = false"
+    />
+
+    <!-- ✅ معاينة الفواتير — تعمل من تبويب "فواتير التصدير" و"فواتير الإرجاع"
+         معاً (خارج قسم أي تبويب محدد، بنفس نمط بقية المودالات المشتركة) -->
+    <PreviewModal
+      v-if="showInvoicePreview"
+      :title="
+        selectedInvoice
+          ? `معاينة الفاتورة (${selectedInvoice.invoice_number || ''})`
+          : 'معاينة الفاتورة'
+      "
+      :html="invoicePreviewHtml"
+      :file-name="(selectedInvoice?.invoice_number || 'invoice') + '.pdf'"
+      :invoice="selectedInvoice"
+      @close="showInvoicePreview = false"
     />
   </div>
 </template>
