@@ -1157,7 +1157,10 @@ app.get("/api/invoices/:id/returns", async (req, res) => {
 app.get("/api/reports/office-commission", async (req, res) => {
   try {
     const { from, to } = req.query;
-    let query = {};
+    // ✅ فواتير الإرجاع (CREDIT_NOTE) تُستثنى من عمولة المكتب العادية —
+    // لا يوجد منطق تسوية/خصم عمولة مرتجعة حالياً، فاستثناؤها بالكامل هو
+    // الخيار الآمن بدل احتسابها كعمولة موجبة إضافية
+    let query = { documentKind: { $ne: "CREDIT_NOTE" } };
     if (from || to) {
       query.date = {};
       if (from) query.date.$gte = from;

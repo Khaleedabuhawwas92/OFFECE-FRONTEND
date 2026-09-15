@@ -206,7 +206,10 @@ async function fetchAll() {
       axios.get(`${API_BASE}/api/invoices?limit=2000`),
       axios.get(`${API_BASE}/api/waybills?limit=2000`),
     ]);
-    invoices.value = Array.isArray(invRes.data) ? invRes.data : [];
+    // ✅ تقرير الشهر (عدد/إجمالي الفواتير، بطاقات الأشهر) لا يجب أن يشمل
+    // فواتير الإرجاع (CREDIT_NOTE) — تُستثنى مركزياً فور الجلب
+    const rawInvoices = Array.isArray(invRes.data) ? invRes.data : [];
+    invoices.value = rawInvoices.filter((x) => x?.documentKind !== "CREDIT_NOTE");
     waybills.value = Array.isArray(wbRes.data) ? wbRes.data : [];
     await fetchOfficeCommission();
   } catch (e) {
