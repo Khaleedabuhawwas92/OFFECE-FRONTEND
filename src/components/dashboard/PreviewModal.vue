@@ -32,7 +32,7 @@ const AUTO_FIT_MAX = 100;
 // الفاتورة العادية (invoice_template.html، مصمم لفواتير النقل بحقول
 // السائق/المركبة التي لا تنطبق هنا). تبقى صحيحة حتى لو XML الموقّع لم
 // يشمل حقول الإرجاع (لا تُوجد أصلاً فيه)، وتُكمَّل بـ QR الرسمي إن وُجد.
-function buildCreditNoteHtml(inv) {
+function buildCreditNoteHtml(inv, qrDataUrl = "") {
   const esc = (v) =>
     String(v ?? "")
       .replace(/&/g, "&amp;")
@@ -75,9 +75,12 @@ function buildCreditNoteHtml(inv) {
     })
     .join("");
 
-  const qrImg = inv?.einv_qr
-    ? `<img class="qr" src="data:image/png;base64,${inv.einv_qr}" alt="QR">`
-    : "";
+  // ✅ einv_qr هو نص/بيانات QR الخام (payload) وليس صورة جاهزة — يُحوَّل
+  // لصورة عبر مكتبة qrcode (نفس ما تفعله downloadJofotaraPdf/QRCode.toDataURL
+  // فعلياً وبنجاح في هذا الملف)، وليس عبر data:image/png;base64 مباشرة.
+  // qrDataUrl يُمرَّر جاهزاً من srcDoc (تحويل غير متزامن)؛ يُخفى تماماً إن
+  // لم تتوفر قيمة صالحة — بدون أيقونة صورة معطوبة.
+  const qrImg = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="QR">` : "";
 
   return `<!doctype html>
 <html lang="ar" dir="rtl">
@@ -88,27 +91,27 @@ function buildCreditNoteHtml(inv) {
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   html, body { margin:0; padding:0; background:#fff; }
-  body { font-family: Tahoma, Arial, sans-serif; direction: rtl; color:#111; font-size:12px; line-height:1.5; }
-  .page { width:210mm; min-height:297mm; padding:12mm; }
-  .title-row { display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #b71c1c; padding-bottom:10px; margin-bottom:14px; }
-  .title-row h1 { font-size:20px; margin:0; color:#b71c1c; }
-  .cr-no { font-size:14px; font-weight:700; direction:ltr; }
-  .ref-line { background:#fff3e0; border:1px solid #ffcc80; border-radius:6px; padding:8px 12px; margin-bottom:14px; font-size:13px; font-weight:700; }
-  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 24px; margin-bottom:14px; }
-  .info-row { display:flex; border-bottom:1px dashed #ddd; padding:6px 0; }
+  body { font-family: Tahoma, Arial, sans-serif; direction: rtl; color:#111; font-size:12px; line-height:1.4; }
+  .page { width:210mm; padding:10mm 12mm; }
+  .title-row { display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #b71c1c; padding-bottom:6px; margin-bottom:8px; }
+  .title-row h1 { font-size:18px; margin:0; color:#b71c1c; }
+  .cr-no { font-size:13px; font-weight:700; direction:ltr; }
+  .ref-line { background:#fff3e0; border:1px solid #ffcc80; border-radius:6px; padding:6px 10px; margin-bottom:8px; font-size:12px; font-weight:700; }
+  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; margin-bottom:8px; }
+  .info-row { display:flex; border-bottom:1px dashed #ddd; padding:4px 0; }
   .info-row .l { width:40%; color:#555; font-weight:700; }
   .info-row .v { width:60%; }
-  .status-badge { display:inline-block; padding:3px 10px; border-radius:999px; font-weight:700; font-size:12px; background:${statusBg}; color:${statusColor}; }
-  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:12px; }
-  th, td { border:1px solid #ccc; padding:7px; text-align:center; }
+  .status-badge { display:inline-block; padding:2px 9px; border-radius:999px; font-weight:700; font-size:11px; background:${statusBg}; color:${statusColor}; }
+  table { width:100%; border-collapse:collapse; margin-top:2px; font-size:12px; }
+  th, td { border:1px solid #ccc; padding:5px 7px; text-align:center; }
   th { background:#f5f5f5; font-weight:700; }
   td.r { text-align:right; }
-  .totals { display:flex; justify-content:flex-end; margin-top:14px; }
-  .totals .box { text-align:left; min-width:220px; border:2px solid #b71c1c; border-radius:6px; padding:10px 14px; }
-  .totals .box .label { color:#555; font-size:12px; }
-  .totals .box .amount { font-size:18px; font-weight:800; color:#b71c1c; }
-  .qr-row { margin-top:16px; text-align:center; }
-  .qr { width:130px; height:130px; }
+  .bottom-row { display:flex; justify-content:space-between; align-items:flex-end; margin-top:10px; }
+  .qr-box { text-align:center; }
+  .qr { width:90px; height:90px; display:block; }
+  .totals .box { text-align:left; min-width:200px; border:2px solid #b71c1c; border-radius:6px; padding:8px 12px; }
+  .totals .box .label { color:#555; font-size:11px; }
+  .totals .box .amount { font-size:16px; font-weight:800; color:#b71c1c; }
 </style>
 </head>
 <body>
@@ -136,22 +139,44 @@ function buildCreditNoteHtml(inv) {
       </tbody>
     </table>
 
-    <div class="totals">
-      <div class="box">
-        <div class="label">إجمالي فاتورة الإرجاع</div>
-        <div class="amount">${num(inv?.value_jod)} JOD</div>
+    <div class="bottom-row">
+      ${qrImg ? `<div class="qr-box">${qrImg}</div>` : "<div></div>"}
+      <div class="totals">
+        <div class="box">
+          <div class="label">إجمالي فاتورة الإرجاع</div>
+          <div class="amount">${num(inv?.value_jod)} JOD</div>
+        </div>
       </div>
     </div>
-
-    ${qrImg ? `<div class="qr-row">${qrImg}</div>` : ""}
   </div>
 </body>
 </html>`;
 }
 
+// ✅ توليد صورة QR بشكل غير متزامن (QRCode.toDataURL لا يمكن استدعاؤها
+// داخل computed متزامن) — بنفس منطق downloadJofotaraPdf المؤكَّد أعلاه.
+// يُعاد ضبطها فور تغيّر الفاتورة كي لا تظهر صورة QR فاتورة سابقة.
+const creditNoteQrDataUrl = ref("");
+watch(
+  () => [props.invoice?.documentKind, props.invoice?.einv_qr],
+  async ([kind, qrPayload]) => {
+    creditNoteQrDataUrl.value = "";
+    if (kind !== "CREDIT_NOTE" || !qrPayload) return;
+    try {
+      creditNoteQrDataUrl.value = await QRCode.toDataURL(String(qrPayload), {
+        width: 90,
+        margin: 1,
+      });
+    } catch (e) {
+      console.error("Credit note QR generation failed:", e);
+    }
+  },
+  { immediate: true },
+);
+
 const srcDoc = computed(() => {
   if (props.invoice?.documentKind === "CREDIT_NOTE") {
-    return buildCreditNoteHtml(props.invoice);
+    return buildCreditNoteHtml(props.invoice, creditNoteQrDataUrl.value);
   }
 
   const h = String(props.html || "").trim();
