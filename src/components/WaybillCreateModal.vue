@@ -2,6 +2,25 @@
 import { ref, computed, onMounted, watch } from "vue";
 import axios from "axios";
 import PreviewModal from "./dashboard/PreviewModal.vue";
+import {
+  WB_LABELS as L,
+  WB_PLACEHOLDERS as PH,
+  TRANSPORT_TYPE_OPTIONS,
+  PACKING_METHOD_OPTIONS,
+  optionsWith,
+  getDriverName,
+  getVehicleNo,
+  getVehicleRegion,
+  makeDriverRow,
+  driverRowKey,
+  driverRowsToPayload,
+  makeEmptyGoodsItem,
+  legacyGoodsFields,
+  useGoodsNatures,
+  joinPlaceDate,
+  normalizeNumericFields,
+  validateWaybillForm,
+} from "./waybillForm.js";
 
 const props = defineProps({
   apiBase: { type: String, required: true },
@@ -35,9 +54,18 @@ const showDriverList = ref(false);
 const showConsignorList = ref(false);
 const showConsigneeList = ref(false);
 
-const goodsNatureOptions = ref([]);
-const goodsNatureOpenIndex = ref(-1);
-const goodsNatureQuery = ref("");
+const {
+  goodsNatureOpenIndex,
+  goodsNatureQuery,
+  filteredGoodsNatures,
+  fetchGoodsNatures,
+  isNewGoodsNature,
+  selectGoodsNature,
+  addGoodsNature,
+} = useGoodsNatures(() => props.apiBase);
+
+// ✅ السائقين/المركبات المختارة — صف لكل سائق مع نوع وسيلة النقل (10)
+const driverRows = ref([]); // [{ driverId, DRIVER_NAME, VEHICLE_NO, VEHICLE_REGION, TYPE_TRANSPORT }]
 
 const selectedConsignor = ref(null);
 const selectedConsignee = ref(null);
@@ -90,16 +118,7 @@ const form = ref({
   // نوع التغليف (اختيار)
   PACKING_METHOD: "طرد", // طرد | طبلية | كرتونة
 
-  goodsItems: [
-    {
-      GOODS_NATURE: "",
-      TARIFF_CODE: "",
-      GROSS_WEIGHT: 0,
-      MARKS: "",
-      PACKAGES_COUNT: 0,
-      PACKING_METHOD: "طرد",
-    },
-  ],
+  goodsItems: [makeEmptyGoodsItem()],
 
   // تعليمات وأجور
   DEMURRAGE_LOADING: 0,
@@ -163,7 +182,7 @@ const locationOptions = computed(() => {
 watch(
   [takingPlace, takingDate],
   ([p, d]) => {
-    form.value.TAKING_PLACE_DATE = p && d ? `${p} - ${d}` : "";
+    form.value.TAKING_PLACE_DATE = joinPlaceDate(p, d);
   },
   { immediate: true },
 );
@@ -171,7 +190,7 @@ watch(
 watch(
   [deliveryPlace, deliveryDate],
   ([p, d]) => {
-    form.value.DELIVERY_PLACE_DATE = p && d ? `${p} - ${d}` : "";
+    form.value.DELIVERY_PLACE_DATE = joinPlaceDate(p, d);
   },
   { immediate: true },
 );
@@ -247,52 +266,6 @@ async function fetchConsignees() {
   }
 }
 
-async function fetchGoodsNatures() {
-  try {
-    const res = await axios.get(`${props.apiBase}/api/goods-natures`);
-    const list = Array.isArray(res.data) ? res.data : [];
-    // Ensure initial options exist even if DB is empty
-    const initial = ["سيارات ركوب وشحن رباعية", "علب بلاستيكية", "مواد إنشائية"];
-    const set = new Set([...initial, ...list]);
-    goodsNatureOptions.value = Array.from(set);
-  } catch (e) {
-    console.error("goods natures error:", e);
-    goodsNatureOptions.value = ["سيارات ركوب وشحن رباعية", "علب بلاستيكية", "مواد إنشائية"];
-  }
-}
-
-const filteredGoodsNatures = computed(() => {
-  const q = String(goodsNatureQuery.value || "").trim();
-  if (!q) return goodsNatureOptions.value;
-  return goodsNatureOptions.value.filter((n) => n.includes(q));
-});
-
-function isNewGoodsNature() {
-  const q = String(goodsNatureQuery.value || "").trim();
-  if (!q) return false;
-  return !goodsNatureOptions.value.some((n) => n === q);
-}
-
-function selectGoodsNature(i, name) {
-  form.value.goodsItems[i].GOODS_NATURE = name;
-  goodsNatureOpenIndex.value = -1;
-  goodsNatureQuery.value = "";
-}
-
-async function addGoodsNature(i) {
-  const name = String(goodsNatureQuery.value || "").trim();
-  if (!name) return;
-  try {
-    await axios.post(`${props.apiBase}/api/goods-natures`, { name });
-    if (!goodsNatureOptions.value.includes(name)) {
-      goodsNatureOptions.value.push(name);
-    }
-    selectGoodsNature(i, name);
-  } catch (e) {
-    console.error("add goods nature error:", e);
-  }
-}
-
 /* =========================
    Serial (peek only)
 ========================= */
@@ -343,75 +316,14 @@ watch(
 /* =========================
    Field getters
 ========================= */
-function toIdStr(x) {
-  if (!x) return "";
-  return String(x?._id ?? x?.id ?? x?.$oid ?? x);
-}
-
 function addDays(dateStr, days) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + Number(days || 0));
   return d.toISOString().slice(0, 10);
 }
 
-function getVehicleNo(d) {
-  return (
-    d?.VEHICLE_NO ??
-    d?.vehicle_no ??
-    d?.plate_no ??
-    d?.PLATE_NO ??
-    d?.car_no ??
-    d?.CAR_NO ??
-    d?.vehicle ??
-    d?.VEHICLE ??
-    ""
-  );
-}
-
-function getVehicleRegion(d) {
-  return (
-    d?.VEHICLE_REGION ??
-    d?.vehicle_region ??
-    d?.region ??
-    d?.REGION ??
-    d?.country ??
-    d?.COUNTRY ??
-    ""
-  );
-}
-
-function getDriverName(d) {
-  return (
-    d?.DRIVER_NAME ??
-    d?.driver_name ??
-    d?.name ??
-    d?.NAME ??
-    d?.fullName ??
-    d?.FULL_NAME ??
-    d?.arabic_name ??
-    d?.ARABIC_NAME ??
-    d?.title ??
-    d?.TITLE ??
-    ""
-  );
-}
 function normalizeCharges() {
-  [
-    "RESERVATION_DAYS",
-    "FREIGHT_CHARGE",
-    "DEMURRAGE_LOADING",
-    "CHARGE1_CONSIGNEE",
-    "CHARGE1_CONSIGNOR",
-    "CHARGE2_CONSIGNEE",
-    "CHARGE2_CONSIGNOR",
-    "CHARGE3_CONSIGNEE",
-    "CHARGE3_CONSIGNOR",
-    "DEDUCTIONS",
-  ].forEach((k) => {
-    if (!Number.isFinite(Number(form.value[k]))) {
-      form.value[k] = 0;
-    }
-  });
+  normalizeNumericFields(form.value);
 }
 
 function getPartyName(p) {
@@ -498,62 +410,30 @@ const filteredConsignees = computed(() => {
 /* =========================
    Selected drivers
 ========================= */
-const selectedDrivers = computed(() => {
-  const ids = (form.value.driver_ids || []).map(String);
-  return (drivers.value || []).filter((d) => ids.includes(String(d?._id)));
-});
 
-// ✅ نصوص (كل واحد بسطر) للفورم
-const selectedDriverNameText = computed(() => {
-  return selectedDrivers.value.map(getDriverName).filter(Boolean).join("\n");
-});
-const selectedVehicleNoText = computed(() => {
-  return selectedDrivers.value.map(getVehicleNo).filter(Boolean).join("\n");
-});
-const selectedVehicleRegionText = computed(() => {
-  return selectedDrivers.value.map(getVehicleRegion).filter(Boolean).join("\n");
-});
-
-/* =========================
-   Select handlers
-========================= */
 function syncDriverFieldsFromSelected() {
-  form.value.DRIVER_NAME = selectedDriverNameText.value || "";
-  form.value.VEHICLE_NO = selectedVehicleNoText.value || "";
-  form.value.VEHICLE_REGION = selectedVehicleRegionText.value || "";
+  Object.assign(form.value, driverRowsToPayload(driverRows.value));
 }
 
 function addDriver(d) {
-  const id = toIdStr(d?._id);
-  if (!id) return;
-
-  const cur = (form.value.driver_ids || []).map(String);
-  if (!cur.includes(String(id))) form.value.driver_ids.push(String(id));
-
-  // ✅ تعبئة تلقائية من سجل السائق فقط إذا الحقل فاضي (لا تمس اختيار المستخدم)
-  if (!String(form.value.TYPE_TRANSPORT || "").trim()) {
-    const vt = String(d?.vehicleType ?? d?.vehicle_type ?? "").trim();
-    if (vt) form.value.TYPE_TRANSPORT = vt;
-  }
-
+  const row = makeDriverRow(d);
+  const key = driverRowKey(row);
+  if (!key || driverRows.value.some((x) => driverRowKey(x) === key)) return;
+  // ✅ نوع وسيلة النقل يُعبّأ تلقائياً من سجل السائق ويمكن تغييره لهذه البوليصة فقط
+  driverRows.value.push(row);
   syncDriverFieldsFromSelected();
   driverQuery.value = "";
   showDriverList.value = false;
 }
 
-function removeDriver(id) {
-  form.value.driver_ids = (form.value.driver_ids || [])
-    .map(String)
-    .filter((x) => x !== String(id));
-
+function removeDriver(idx) {
+  driverRows.value.splice(idx, 1);
   syncDriverFieldsFromSelected();
 }
 
 function clearDrivers() {
-  form.value.driver_ids = [];
-  form.value.DRIVER_NAME = "";
-  form.value.VEHICLE_NO = "";
-  form.value.VEHICLE_REGION = "";
+  driverRows.value = [];
+  syncDriverFieldsFromSelected();
 }
 
 /* =========================
@@ -592,17 +472,6 @@ function clearConsignee() {
 /* =========================
    Goods items helpers
 ========================= */
-function makeEmptyGoodsItem() {
-  return {
-    GOODS_NATURE: "",
-    TARIFF_CODE: "",
-    GROSS_WEIGHT: 0,
-    MARKS: "",
-    PACKAGES_COUNT: 0,
-    PACKING_METHOD: "طرد",
-  };
-}
-
 function addGoodsItem() {
   form.value.goodsItems.push(makeEmptyGoodsItem());
 }
@@ -613,14 +482,7 @@ function removeGoodsItem(i) {
 }
 
 function syncGoodsItemsToLegacy() {
-  const first = form.value.goodsItems?.[0];
-  if (!first) return;
-  form.value.GOODS_NATURE = first.GOODS_NATURE || "";
-  form.value.TARIFF_CODE = first.TARIFF_CODE || "";
-  form.value.GROSS_WEIGHT = first.GROSS_WEIGHT || 0;
-  form.value.MARKS = first.MARKS || "";
-  form.value.PACKAGES_COUNT = first.PACKAGES_COUNT || 0;
-  form.value.PACKING_METHOD = first.PACKING_METHOD || "طرد";
+  Object.assign(form.value, legacyGoodsFields(form.value.goodsItems));
 }
 
 function buildGoodsRowsHtml() {
@@ -673,16 +535,6 @@ function fillTemplate(template, obj) {
   });
 }
 
-// ✅ تحويل نص متعدد الأسطر إلى HTML أسطر (للتمبليت فقط)
-function textToHtmlLines(s) {
-  return String(s || "")
-    .split("\n")
-    .map((x) => x.trim())
-    .filter(Boolean)
-    .map((x) => `<span class="v-line">${x}</span>`)
-    .join("");
-}
-
 function focusFirstInvalid() {
   const first = document.querySelector(".is-invalid");
   if (first) {
@@ -693,29 +545,14 @@ function focusFirstInvalid() {
 
 function validate() {
   // ✅ لا تشترط SERIAL_NO — السيرفر مسؤول
-  if (!form.value.DATE) return "التاريخ مطلوب";
-  if (!form.value.CONSIGNOR_NAME) return "اختر المرسل من البحث";
-  if (!form.value.CONSIGNEE_NAME) return "اختر المستلم من البحث";
-  if (!(form.value.driver_ids || []).length) return "اختر سائق/مركبة من البحث";
-  if (!form.value.VEHICLE_NO) return "رقم المركبة مطلوب";
-
-  // Route section validation
-  errors.value.takingPlace = takingPlace.value.trim()
-    ? ""
-    : "يرجى اختيار مكان الاستلام";
-  errors.value.takingDate = takingDate.value ? "" : "يرجى تحديد تاريخ الاستلام";
-  errors.value.deliveryPlace = deliveryPlace.value.trim()
-    ? ""
-    : "يرجى اختيار مكان التسليم";
-  errors.value.deliveryDate = deliveryDate.value
-    ? ""
-    : "يرجى تحديد تاريخ التسليم";
-  errors.value.route = form.value.ROUTE?.trim() ? "" : "يرجى تحديد خط السير";
-
-  const hasRouteErrors = Object.values(errors.value).some(Boolean);
-  if (hasRouteErrors) return "يرجى تعبئة بيانات خط السير والاستلام والتسليم";
-
-  return "";
+  syncDriverFieldsFromSelected();
+  return validateWaybillForm({
+    form: form.value,
+    driverRows: driverRows.value,
+    taking: { place: takingPlace.value, date: takingDate.value },
+    delivery: { place: deliveryPlace.value, date: deliveryDate.value },
+    errors: errors.value,
+  });
 }
 
 async function buildPreview() {
@@ -736,9 +573,6 @@ async function buildPreview() {
     // ✅ للتمبليت فقط: حوّلها إلى HTML أسطر
     const dataForTpl = {
       ...form.value,
-      DRIVER_NAME: textToHtmlLines(form.value.DRIVER_NAME),
-      VEHICLE_NO: textToHtmlLines(form.value.VEHICLE_NO),
-      VEHICLE_REGION: textToHtmlLines(form.value.VEHICLE_REGION),
       GOODS_ROWS: buildGoodsRowsHtml(),
       STAMP_SIGNATURE_BLOCK: showStampSignature.value
         ? `<div style="height:14px;position:relative;overflow:visible;">
@@ -851,7 +685,7 @@ async function saveWaybill() {
           </div>
           <div class="row three-col">
             <div class="field">
-              <label>رقم السند</label>
+              <label>{{ L.SERIAL_NO }}</label>
               <input
                 v-model="form.SERIAL_NO"
                 class="input input--readonly"
@@ -859,11 +693,11 @@ async function saveWaybill() {
               />
             </div>
             <div class="field">
-              <label>التاريخ</label>
+              <label>{{ L.DATE }}</label>
               <input v-model="form.DATE" type="date" class="input" />
             </div>
             <div class="field">
-              <label>مكان الإصدار</label>
+              <label>{{ L.ISSUING_PLACE }}</label>
               <input v-model="form.ISSUING_PLACE" class="input" />
             </div>
           </div>
@@ -878,7 +712,7 @@ async function saveWaybill() {
           <div class="row two-col">
             <!-- المرسل -->
             <div class="party-card">
-              <div class="party-title">المرسل</div>
+              <div class="party-title">{{ L.CONSIGNOR }}</div>
 
               <div class="chips" v-if="selectedConsignor">
                 <span class="chip">
@@ -892,7 +726,7 @@ async function saveWaybill() {
               <input
                 v-model="consignorQuery"
                 class="input"
-                placeholder="ابحث عن المرسل..."
+                :placeholder="PH.CONSIGNOR_SEARCH"
                 @focus="showConsignorList = true"
                 @keydown.esc="showConsignorList = false"
               />
@@ -922,15 +756,23 @@ async function saveWaybill() {
                 </div>
               </div>
 
-              <div class="info-rows">
-                <div><b>العنوان:</b> {{ form.CONSIGNOR_ADDRESS || "—" }}</div>
-                <div><b>الهاتف:</b> {{ form.CONSIGNOR_PHONE || "—" }}</div>
+              <div class="field" style="margin-top: 8px">
+                <label>{{ L.PARTY_NAME }}</label>
+                <input v-model="form.CONSIGNOR_NAME" class="input" />
+              </div>
+              <div class="field">
+                <label>{{ L.PARTY_ADDRESS }}</label>
+                <input v-model="form.CONSIGNOR_ADDRESS" class="input" />
+              </div>
+              <div class="field">
+                <label>{{ L.PARTY_PHONE }}</label>
+                <input v-model="form.CONSIGNOR_PHONE" class="input" />
               </div>
             </div>
 
             <!-- المستلم -->
             <div class="party-card">
-              <div class="party-title">المستلم</div>
+              <div class="party-title">{{ L.CONSIGNEE }}</div>
 
               <div class="chips" v-if="selectedConsignee">
                 <span class="chip">
@@ -944,7 +786,7 @@ async function saveWaybill() {
               <input
                 v-model="consigneeQuery"
                 class="input"
-                placeholder="ابحث عن المستلم..."
+                :placeholder="PH.CONSIGNEE_SEARCH"
                 @focus="showConsigneeList = true"
                 @keydown.esc="showConsigneeList = false"
               />
@@ -974,48 +816,35 @@ async function saveWaybill() {
                 </div>
               </div>
 
-              <div class="info-rows">
-                <div><b>العنوان:</b> {{ form.CONSIGNEE_ADDRESS || "—" }}</div>
-                <div><b>الهاتف:</b> {{ form.CONSIGNEE_PHONE || "—" }}</div>
+              <div class="field" style="margin-top: 8px">
+                <label>{{ L.PARTY_NAME }}</label>
+                <input v-model="form.CONSIGNEE_NAME" class="input" />
+              </div>
+              <div class="field">
+                <label>{{ L.PARTY_ADDRESS }}</label>
+                <input v-model="form.CONSIGNEE_ADDRESS" class="input" />
+              </div>
+              <div class="field">
+                <label>{{ L.PARTY_PHONE }}</label>
+                <input v-model="form.CONSIGNEE_PHONE" class="input" />
               </div>
             </div>
           </div>
         </section>
 
-        <!-- 3) السائق والمركبة -->
+        <!-- 3) السائق والمركبة — (10) (11) (12) -->
         <section class="form-card">
           <div class="card-head">
             <span class="card-dot"></span>
             <h3>السائق والمركبة</h3>
           </div>
 
-          <!-- Search -->
           <div class="field" style="margin-bottom: 12px">
             <label>ابحث برقم السيارة أو اسم السائق</label>
-            <div class="chips" v-if="selectedDrivers.length">
-              <span class="chip" v-for="d in selectedDrivers" :key="d._id">
-                {{ getVehicleNo(d) }} - {{ getDriverName(d) }}
-                <button
-                  type="button"
-                  class="chip-x"
-                  @click="removeDriver(d._id)"
-                >
-                  ×
-                </button>
-              </span>
-              <button
-                v-if="selectedDrivers.length"
-                type="button"
-                class="btn btn--small btn--secondary"
-                @click="clearDrivers"
-              >
-                مسح الكل
-              </button>
-            </div>
             <input
               v-model="driverQuery"
               class="input"
-              placeholder="اكتب رقم السيارة / اسم السائق..."
+              :placeholder="PH.DRIVER_SEARCH"
               @focus="showDriverList = true"
               @keydown.esc="showDriverList = false"
             />
@@ -1044,43 +873,49 @@ async function saveWaybill() {
             </div>
           </div>
 
-          <div class="row three-col">
+          <div v-for="(r, idx) in driverRows" :key="idx" class="wb-driver-row">
             <div class="field">
-              <label>نوع وسيلة النقل</label>
-              <input
-                v-model="form.TYPE_TRANSPORT"
-                class="input"
-                placeholder="Truck / Trailer..."
-              />
+              <label>{{ L.TYPE_TRANSPORT }}</label>
+              <select v-model="r.TYPE_TRANSPORT" class="input">
+                <option value="">{{ PH.TYPE_TRANSPORT }}</option>
+                <option
+                  v-for="t in optionsWith(TRANSPORT_TYPE_OPTIONS, r.TYPE_TRANSPORT)"
+                  :key="t"
+                  :value="t"
+                >
+                  {{ t }}
+                </option>
+              </select>
             </div>
             <div class="field">
-              <label>رقم المركبة</label>
-              <textarea
-                :value="selectedVehicleNoText"
-                class="textarea textarea--compact"
-                rows="2"
-                readonly
-              ></textarea>
+              <label>{{ L.VEHICLE_NO }}</label>
+              <input :value="r.VEHICLE_NO" class="input input--readonly" readonly />
             </div>
             <div class="field">
-              <label>المنطقة / الدولة</label>
-              <textarea
-                :value="selectedVehicleRegionText"
-                class="textarea textarea--compact"
-                rows="2"
-                readonly
-              ></textarea>
+              <label>{{ L.VEHICLE_REGION }}</label>
+              <input :value="r.VEHICLE_REGION" class="input input--readonly" readonly />
             </div>
+            <div class="field">
+              <label>{{ L.DRIVER_NAME }}</label>
+              <input :value="r.DRIVER_NAME" class="input input--readonly" readonly />
+            </div>
+            <button
+              type="button"
+              class="btn btn--danger btn--small"
+              title="حذف"
+              @click="removeDriver(idx)"
+            >
+              ×
+            </button>
           </div>
-          <div class="field" style="margin-top: 10px">
-            <label>اسم السائق</label>
-            <textarea
-              :value="selectedDriverNameText"
-              class="textarea textarea--compact"
-              rows="2"
-              readonly
-            ></textarea>
-          </div>
+          <button
+            v-if="driverRows.length"
+            type="button"
+            class="btn btn--small btn--secondary"
+            @click="clearDrivers"
+          >
+            مسح الكل
+          </button>
         </section>
 
         <!-- 4) خط السير والاستلام والتسليم -->
@@ -1091,7 +926,7 @@ async function saveWaybill() {
           </div>
           <div class="row two-col">
             <div class="field">
-              <label>مكان وتاريخ استلام البضاعة</label>
+              <label>{{ L.TAKING_PLACE_DATE }}</label>
               <div class="row two-col" style="gap: 8px">
                 <div>
                   <input
@@ -1099,7 +934,7 @@ async function saveWaybill() {
                     list="location-options"
                     class="input"
                     :class="{ 'is-invalid': errors.takingPlace }"
-                    placeholder="مكان الاستلام"
+                    :placeholder="PH.TAKING_PLACE"
                   />
                   <div v-if="errors.takingPlace" class="error-msg">
                     {{ errors.takingPlace }}
@@ -1119,7 +954,7 @@ async function saveWaybill() {
               </div>
             </div>
             <div class="field">
-              <label>مكان وتاريخ تسليم البضاعة</label>
+              <label>{{ L.DELIVERY_PLACE_DATE }}</label>
               <div class="row two-col" style="gap: 8px">
                 <div>
                   <input
@@ -1127,7 +962,7 @@ async function saveWaybill() {
                     list="location-options"
                     class="input"
                     :class="{ 'is-invalid': errors.deliveryPlace }"
-                    placeholder="مكان التسليم"
+                    :placeholder="PH.DELIVERY_PLACE"
                   />
                   <div v-if="errors.deliveryPlace" class="error-msg">
                     {{ errors.deliveryPlace }}
@@ -1148,7 +983,7 @@ async function saveWaybill() {
             </div>
           </div>
           <div class="field" style="margin-top: 10px">
-            <label>خط السير (Route)</label>
+            <label>{{ L.ROUTE }}</label>
             <input
               v-model="form.ROUTE"
               list="location-options"
@@ -1158,7 +993,7 @@ async function saveWaybill() {
                 'input--readonly': !!(selectedConsignor && selectedConsignee),
               }"
               :readonly="!!(selectedConsignor && selectedConsignee)"
-              placeholder="عمّان → الحدود → بغداد"
+              :placeholder="PH.ROUTE"
             />
             <div v-if="errors.route" class="error-msg">
               {{ errors.route }}
@@ -1173,21 +1008,37 @@ async function saveWaybill() {
           </datalist>
         </section>
 
-        <!-- 5) تفاصيل البضاعة -->
+        <!-- 5) تفاصيل البضاعة — (15) → (20) بنفس ترتيب القالب المطبوع -->
         <section class="form-card">
           <div class="card-head">
             <span class="card-dot"></span>
             <h3>تفاصيل البضاعة</h3>
           </div>
 
-          <div
-            class="goods-row"
-            v-for="(g, i) in form.goodsItems"
-            :key="i"
-            style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: end; margin-bottom: 8px;"
-          >
-            <div class="field" style="position: relative;">
-              <label>طبيعة البضاعة</label>
+          <div class="wb-goods-row" v-for="(g, i) in form.goodsItems" :key="i">
+            <div class="wb-goods-idx">{{ i + 1 }}</div>
+            <div class="field">
+              <label>{{ L.MARKS }}</label>
+              <input v-model="g.MARKS" class="input" />
+            </div>
+            <div class="field">
+              <label>{{ L.PACKAGES_COUNT }}</label>
+              <input v-model="g.PACKAGES_COUNT" class="input" type="number" min="0" step="1" />
+            </div>
+            <div class="field">
+              <label>{{ L.PACKING_METHOD }}</label>
+              <select v-model="g.PACKING_METHOD" class="input">
+                <option
+                  v-for="p in optionsWith(PACKING_METHOD_OPTIONS, g.PACKING_METHOD)"
+                  :key="p"
+                  :value="p"
+                >
+                  {{ p }}
+                </option>
+              </select>
+            </div>
+            <div class="field" style="position: relative">
+              <label>{{ L.GOODS_NATURE }}</label>
               <input
                 :value="g.GOODS_NATURE"
                 class="input"
@@ -1195,22 +1046,20 @@ async function saveWaybill() {
                 @input="g.GOODS_NATURE = $event.target.value; goodsNatureQuery = $event.target.value"
                 @keydown.esc="goodsNatureOpenIndex = -1"
               />
-              <div class="dropdown" v-if="goodsNatureOpenIndex === i" style="position: absolute; left: 0; right: 0; z-index: 20; background: #fff;">
+              <div class="dropdown wb-goods-dd" v-if="goodsNatureOpenIndex === i">
                 <div
                   v-for="n in filteredGoodsNatures"
                   :key="n"
                   class="dropdown-item"
-                  type="button"
-                  @click="selectGoodsNature(i, n)"
+                  @click="selectGoodsNature(form.goodsItems, i, n)"
                 >
                   {{ n }}
                 </div>
                 <div
                   v-if="isNewGoodsNature()"
                   class="dropdown-item"
-                  style="color: #1976d2; font-weight: 700;"
-                  type="button"
-                  @click="addGoodsNature(i)"
+                  style="color: #1976d2; font-weight: 700"
+                  @click="addGoodsNature(form.goodsItems, i)"
                 >
                   ➕ إضافة "{{ goodsNatureQuery }}"
                 </div>
@@ -1223,57 +1072,36 @@ async function saveWaybill() {
               </div>
             </div>
             <div class="field">
-              <label>الرمز الجمركي</label>
+              <label>{{ L.TARIFF_CODE }}</label>
               <input v-model="g.TARIFF_CODE" class="input" />
             </div>
             <div class="field">
-              <label>Gross Weight</label>
+              <label>{{ L.GROSS_WEIGHT }}</label>
               <input v-model="g.GROSS_WEIGHT" class="input" type="number" min="0" step="0.001" />
             </div>
-            <div class="field">
-              <label>الأرقام والعلامات</label>
-              <input v-model="g.MARKS" class="input" />
-            </div>
-            <div class="field">
-              <label>عدد الطرود</label>
-              <input v-model="g.PACKAGES_COUNT" class="input" type="number" min="0" step="1" />
-            </div>
-            <div class="field" style="display: flex; gap: 6px; align-items: flex-end;">
-              <div style="flex: 1;">
-                <label>نوع التغليف</label>
-                <select v-model="g.PACKING_METHOD" class="input">
-                  <option value="طرد">طرد</option>
-                  <option value="وحدة">وحدة</option>
-                  <option value="طبلية">طبلية</option>
-                  <option value="كرتونة">كرتونة</option>
-                </select>
-              </div>
-              <button
-                type="button"
-                class="btn btn--danger btn--small"
-                @click="removeGoodsItem(i)"
-                title="حذف"
-              >
-                ×
-              </button>
-            </div>
+            <button
+              type="button"
+              class="btn btn--danger btn--small"
+              title="حذف"
+              @click="removeGoodsItem(i)"
+            >
+              ×
+            </button>
           </div>
 
-          <div style="margin-top: 6px;">
+          <div style="margin-top: 6px">
             <button type="button" class="btn btn--secondary btn--small" @click="addGoodsItem">
               ➕ إضافة تفصيلة
             </button>
           </div>
 
-          <div class="row three-col" style="margin-top: 12px;">
-            <div class="field">
-              <label>المستندات المرفقة</label>
-              <input
-                v-model="form.ANNEXED_DOCS"
-                class="input"
-                placeholder="Invoice, Packing List..."
-              />
-            </div>
+          <div class="field" style="margin-top: 12px">
+            <label>{{ L.ANNEXED_DOCS }}</label>
+            <input
+              v-model="form.ANNEXED_DOCS"
+              class="input"
+              :placeholder="PH.ANNEXED_DOCS"
+            />
           </div>
         </section>
 
@@ -1285,66 +1113,42 @@ async function saveWaybill() {
           </div>
           <div class="row three-col">
             <div class="field">
-              <label>بدل عطل (أيام)</label>
-              <input
-                v-model.number="form.RESERVATION_DAYS"
-                type="number"
-                min="0"
-                step="1"
-                class="input"
-              />
+              <label>{{ L.RESERVATION_DAYS }}</label>
+              <input v-model.number="form.RESERVATION_DAYS" type="number" min="0" step="1" class="input" />
             </div>
             <div class="field">
-              <label>أجور الشحن</label>
-              <input
-                v-model.number="form.FREIGHT_CHARGE"
-                type="number"
-                min="0"
-                step="0.001"
-                class="input"
-              />
+              <label>{{ L.FREIGHT_CHARGE }}</label>
+              <input v-model.number="form.FREIGHT_CHARGE" type="number" min="0" step="0.001" class="input" />
             </div>
             <div class="field">
-              <label>تدفع في (عربي)</label>
+              <label>{{ L.FREIGHT_PAY_PLACE_AR }}</label>
               <input v-model="form.FREIGHT_PAY_PLACE_AR" class="input" />
             </div>
             <div class="field">
-              <label>Paid at (English)</label>
+              <label>{{ L.FREIGHT_PAY_PLACE_EN }}</label>
               <input v-model="form.FREIGHT_PAY_PLACE_EN" class="input" />
+            </div>
+            <div class="field">
+              <label>{{ L.DEMURRAGE_LOADING }}</label>
+              <input v-model.number="form.DEMURRAGE_LOADING" type="number" min="0" step="1" class="input" />
             </div>
           </div>
           <div class="row three-col" style="margin-top: 10px">
             <div class="field">
-              <label>تعليمات المرسل</label>
-              <textarea
-                v-model="form.CONSIGNER_INSTRUCTION"
-                class="textarea textarea--compact"
-                rows="2"
-              ></textarea>
+              <label>{{ L.CONSIGNER_INSTRUCTION }}</label>
+              <textarea v-model="form.CONSIGNER_INSTRUCTION" class="textarea textarea--compact" rows="2"></textarea>
             </div>
             <div class="field">
-              <label>اتفاقيات خاصة</label>
-              <textarea
-                v-model="form.SPECIAL_TERMS"
-                class="textarea textarea--compact"
-                rows="2"
-              ></textarea>
+              <label>{{ L.SPECIAL_TERMS }}</label>
+              <textarea v-model="form.SPECIAL_TERMS" class="textarea textarea--compact" rows="2"></textarea>
             </div>
             <div class="field">
-              <label>الدفع عند التسليم</label>
-              <textarea
-                v-model="form.CASH_ON_DELIVERY"
-                class="textarea textarea--compact"
-                rows="2"
-              ></textarea>
+              <label>{{ L.CASH_ON_DELIVERY }}</label>
+              <textarea v-model="form.CASH_ON_DELIVERY" class="textarea textarea--compact" rows="2"></textarea>
             </div>
             <div class="field">
-              <label>ملاحظات الدفع عند التسليم</label>
-              <textarea
-                v-model="form.CASH_ON_DELIVERY_NOTES"
-                class="textarea textarea--compact"
-                rows="2"
-              ></textarea>
+              <label>{{ L.CASH_ON_DELIVERY_NOTES }}</label>
+              <textarea v-model="form.CASH_ON_DELIVERY_NOTES" class="textarea textarea--compact" rows="3"></textarea>
             </div>
           </div>
         </section>
@@ -1363,6 +1167,36 @@ async function saveWaybill() {
 </template>
 
 <style scoped>
+/* ✅ صف سائق: (10) (11) (11) (12) + حذف */
+.wb-driver-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+/* ✅ صف بضاعة: # (15) (16) (17) (18) (19) (20) + حذف */
+.wb-goods-row {
+  display: grid;
+  grid-template-columns: 28px repeat(6, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+.wb-goods-idx {
+  font-weight: 700;
+  text-align: center;
+  padding-bottom: 10px;
+}
+.wb-goods-dd {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  background: #fff;
+}
+
 .overlay {
   position: fixed;
   inset: 0;

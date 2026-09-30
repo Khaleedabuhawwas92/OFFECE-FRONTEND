@@ -1104,6 +1104,7 @@ async function openWaybillPreview(wb) {
   }
 }
 
+// ✅ بوليصات قديمة بدون TYPEn: نوع وسيلة النقل (10) من البوليصة أولاً ثم سجل السائق
 function applyDriversToData(data, driversList = []) {
   const d1 = driversList[0] || {};
   const d2 = driversList[1] || {};
@@ -1112,17 +1113,17 @@ function applyDriversToData(data, driversList = []) {
   return {
     ...data,
 
-    TYPE1_TRANSPORT: d1.TYPE_TRANSPORT || d1.transport_type || "",
+    TYPE1_TRANSPORT: d1._id ? data.TYPE_TRANSPORT || d1.TYPE_TRANSPORT || d1.transport_type || d1.vehicleType || "" : "",
     VEHICLE1_NO: getVehicleNo(d1) || "",
     VEHICLE1_REGION: d1.VEHICLE_REGION || d1.vehicle_city || "",
     DRIVER1_NAME: getDriverName(d1) || "",
 
-    TYPE2_TRANSPORT: d2.TYPE_TRANSPORT || d2.transport_type || "",
+    TYPE2_TRANSPORT: d2._id ? data.TYPE_TRANSPORT || d2.TYPE_TRANSPORT || d2.transport_type || d2.vehicleType || "" : "",
     VEHICLE2_NO: getVehicleNo(d2) || "",
     VEHICLE2_REGION: d2.VEHICLE_REGION || d2.vehicle_city || "",
     DRIVER2_NAME: getDriverName(d2) || "",
 
-    TYPE3_TRANSPORT: d3.TYPE_TRANSPORT || d3.transport_type || "",
+    TYPE3_TRANSPORT: d3._id ? data.TYPE_TRANSPORT || d3.TYPE_TRANSPORT || d3.transport_type || d3.vehicleType || "" : "",
     VEHICLE3_NO: getVehicleNo(d3) || "",
     VEHICLE3_REGION: d3.VEHICLE_REGION || d3.vehicle_city || "",
     DRIVER3_NAME: getDriverName(d3) || "",

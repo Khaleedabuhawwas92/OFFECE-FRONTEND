@@ -2,6 +2,28 @@
 import { ref, onMounted, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import axios from "axios";
+import {
+  WB_LABELS as L,
+  WB_PLACEHOLDERS as PH,
+  TRANSPORT_TYPE_OPTIONS,
+  PACKING_METHOD_OPTIONS,
+  optionsWith,
+  getDriverName,
+  getVehicleNo,
+  getVehicleRegion,
+  driverTypeFromMaster,
+  makeDriverRow,
+  driverRowKey,
+  driverRowsToPayload,
+  makeEmptyGoodsItem,
+  goodsItemsFromWaybill,
+  legacyGoodsFields,
+  useGoodsNatures,
+  splitPlaceDate,
+  joinPlaceDate,
+  normalizeNumericFields,
+  validateWaybillForm,
+} from "./waybillForm.js";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 
@@ -38,15 +60,24 @@ const selectedConsignor = ref(null);
 const selectedConsignee = ref(null);
 
 /* =========================
-   ✅ Multi Drivers (same box)
+   ✅ Multi Drivers — صف لكل سائق (10) (11) (12)
 ========================= */
 const selectedDrivers = ref([]); // [{ driverId, DRIVER_NAME, VEHICLE_NO, VEHICLE_REGION, TYPE_TRANSPORT }]
-const savedGoodsItems = ref([]); // ✅ نسخة goodsItems المحفوظة (المصدر الأساسي للـ PDF)
 const driverQuery = ref("");
 const showDriverList = ref(false);
 
+const {
+  goodsNatureOpenIndex,
+  goodsNatureQuery,
+  filteredGoodsNatures,
+  fetchGoodsNatures,
+  isNewGoodsNature,
+  selectGoodsNature,
+  addGoodsNature,
+} = useGoodsNatures(() => API_BASE);
+
 /* =========================
-   Form (core fields)
+   Form — نفس حقول شاشة الإنشاء
 ========================= */
 const form = ref({
   _id: null,
@@ -62,17 +93,56 @@ const form = ref({
   CONSIGNEE_ADDRESS: "",
   CONSIGNEE_PHONE: "",
 
-  GOODS_NATURE: "",
-  TARIFF_CODE: "",
-  GROSS_WEIGHT: "",
-  MARKS: "",
-  PACKAGES_COUNT: "",
-  PACKING_METHOD: "",
-  ANNEXED_DOCS: "",
+  TAKING_PLACE_DATE: "",
+  DELIVERY_PLACE_DATE: "",
   ROUTE: "",
-  DEMURRAGE_LOADING: "",
+
+  goodsItems: [makeEmptyGoodsItem()],
+  ANNEXED_DOCS: "",
+
+  RESERVATION_DAYS: 0,
+  FREIGHT_CHARGE: 0,
+  FREIGHT_PAY_PLACE_AR: "",
+  FREIGHT_PAY_PLACE_EN: "",
+  DEMURRAGE_LOADING: 0,
+  CONSIGNER_INSTRUCTION: "",
+  SPECIAL_TERMS: "",
+  CASH_ON_DELIVERY: 0,
   CASH_ON_DELIVERY_NOTES: "",
 });
+
+/* =========================
+   Route section split fields ("مكان - YYYY-MM-DD")
+========================= */
+const takingPlace = ref("");
+const takingDate = ref("");
+const deliveryPlace = ref("");
+const deliveryDate = ref("");
+
+const errors = ref({
+  takingPlace: "",
+  takingDate: "",
+  deliveryPlace: "",
+  deliveryDate: "",
+  route: "",
+});
+
+watch([takingPlace, takingDate], ([p, d]) => {
+  form.value.TAKING_PLACE_DATE = joinPlaceDate(p, d);
+  errors.value.takingPlace = "";
+  errors.value.takingDate = "";
+});
+watch([deliveryPlace, deliveryDate], ([p, d]) => {
+  form.value.DELIVERY_PLACE_DATE = joinPlaceDate(p, d);
+  errors.value.deliveryPlace = "";
+  errors.value.deliveryDate = "";
+});
+watch(
+  () => form.value.ROUTE,
+  () => {
+    errors.value.route = "";
+  },
+);
 
 /* =========================
    Helpers
@@ -104,46 +174,45 @@ function getConsigneeName(c) {
   );
 }
 
-function getDriverName(d) {
-  return d?.name ?? d?.NAME ?? d?.driver_name ?? d?.DRIVER_NAME ?? "";
-}
 function getPhone(x) {
   return x?.phone ?? x?.PHONE ?? x?.mobile ?? x?.MOBILE ?? "";
 }
 function getAddress(x) {
   return x?.address ?? x?.ADDRESS ?? x?.addr ?? x?.ADDR ?? "";
 }
-function getVehicleNo(d) {
-  return d?.vehicle_no ?? d?.VEHICLE_NO ?? d?.vehicleNumber ?? "";
-}
-function getVehicleRegion(d) {
+// ✅ نفس منطق خط السير في شاشة الإنشاء (مدينة → عنوان → دولة → اسم)
+function getLocation(p) {
+  if (!p) return "";
   return (
-    d?.vehicle_city ?? d?.vehicle_region ?? d?.VEHICLE_REGION ?? d?.region ?? ""
+    p?.city ||
+    p?.CITY ||
+    p?.town ||
+    p?.TOWN ||
+    getAddress(p) ||
+    p?.country ||
+    p?.COUNTRY ||
+    getConsignorName(p) ||
+    ""
   );
 }
 
-/**
- * ✅ تحديد نوع النقل تلقائيًا
- */
-function inferTransportType(driver) {
-  const raw =
-    String(
-      driver?.vehicleType ??
-        driver?.vehicle_type ??
-        driver?.VEHICLE_TYPE ??
-        driver?.type ??
-        driver?.TYPE ??
-        "",
-    ).trim() || String(driver?.notes ?? driver?.NOTES ?? "").trim();
-
-  const t = raw.toLowerCase();
-  if (t.includes("تريلا") || t.includes("trailer")) return "تريلا";
-  if (t.includes("سطحة") || t.includes("flatbed")) return "سطحة";
-  return String(driver?.vehicleType ?? "").trim();
-}
-
-/* ✅ خيارات نوع المركبة / التريلا (قيمة على مستوى البوليصة، لا تعدّل سجل السائق) */
-const TRANSPORT_TYPE_OPTIONS = ["تريلا - سطحة", "تريلا", "سطحة"];
+const locationOptions = computed(() => {
+  const set = new Set();
+  if (form.value.ISSUING_PLACE) set.add(form.value.ISSUING_PLACE);
+  drivers.value.forEach((d) => {
+    const r = getVehicleRegion(d);
+    if (r) set.add(r);
+  });
+  consignors.value.forEach((c) => {
+    const a = getAddress(c);
+    if (a) set.add(a);
+  });
+  consignees.value.forEach((c) => {
+    const a = getAddress(c);
+    if (a) set.add(a);
+  });
+  return Array.from(set).filter(Boolean);
+});
 
 function goBack() {
   router.push({ path: "/", query: { refresh: "1", type: "waybill" } });
@@ -244,6 +313,16 @@ const filteredDrivers = computed(() => {
 /* =========================
    Selectors: Consignor / Consignee
 ========================= */
+// ✅ خط السير يُحدَّث فقط عند اختيار المستخدم (لا عند التحميل) كي لا يُستبدل المحفوظ
+function updateRouteFromParties() {
+  const sc = selectedConsignor.value;
+  const se = selectedConsignee.value;
+  if (!sc || !se) return;
+  const from = getLocation(sc);
+  const to = getLocation(se);
+  if (from && to) form.value.ROUTE = `${from} → ${to}`;
+}
+
 function selectConsignor(c) {
   selectedConsignor.value = c || null;
 
@@ -254,6 +333,7 @@ function selectConsignor(c) {
 
   consignorQuery.value = "";
   showConsignorList.value = false;
+  updateRouteFromParties();
 }
 function clearConsignor() {
   selectedConsignor.value = null;
@@ -270,6 +350,7 @@ function selectConsignee(c) {
 
   consigneeQuery.value = "";
   showConsigneeList.value = false;
+  updateRouteFromParties();
 }
 function clearConsignee() {
   selectedConsignee.value = null;
@@ -279,24 +360,10 @@ function clearConsignee() {
 /* =========================
    ✅ Selectors: Multi Drivers
 ========================= */
-function driverKey(x) {
-  return String(x?.driverId || x?._id || x?.id || x?.DRIVER_NAME || "");
-}
-
-function makeSelectedDriverFromDb(d) {
-  return {
-    driverId: d?._id || d?.id || null,
-    DRIVER_NAME: getDriverName(d) || "",
-    VEHICLE_NO: getVehicleNo(d) || "",
-    VEHICLE_REGION: getVehicleRegion(d) || "",
-    TYPE_TRANSPORT: String(d?.vehicleType ?? "").trim() || inferTransportType(d),
-  };
-}
-
 function selectDriver(d) {
-  const item = makeSelectedDriverFromDb(d);
-  const key = driverKey(item);
-  if (selectedDrivers.value.some((x) => driverKey(x) === key)) return;
+  const item = makeDriverRow(d);
+  const key = driverRowKey(item);
+  if (!key || selectedDrivers.value.some((x) => driverRowKey(x) === key)) return;
 
   selectedDrivers.value.push(item);
   driverQuery.value = "";
@@ -312,6 +379,17 @@ function clearAllDrivers() {
 }
 
 /* =========================
+   Goods items
+========================= */
+function addGoodsItem() {
+  form.value.goodsItems.push(makeEmptyGoodsItem());
+}
+function removeGoodsItem(i) {
+  if (form.value.goodsItems.length === 1) return;
+  form.value.goodsItems.splice(i, 1);
+}
+
+/* =========================
    Fetch Waybill
 ========================= */
 async function fetchWaybill() {
@@ -322,10 +400,6 @@ async function fetchWaybill() {
   try {
     const res = await axios.get(`${API_BASE}/api/waybills/${waybillId.value}`);
     const wb = res.data || {};
-
-    // ✅ goodsItems هو المصدر الأساسي عند وجوده — عبّي الفورم منه
-    savedGoodsItems.value = Array.isArray(wb.goodsItems) ? wb.goodsItems : [];
-    const g0 = savedGoodsItems.value.length ? savedGoodsItems.value[0] : null;
 
     form.value = {
       _id: wb._id,
@@ -341,19 +415,40 @@ async function fetchWaybill() {
       CONSIGNEE_ADDRESS: wb.CONSIGNEE_ADDRESS || "",
       CONSIGNEE_PHONE: wb.CONSIGNEE_PHONE || "",
 
-      GOODS_NATURE: (g0?.GOODS_NATURE ?? wb.GOODS_NATURE) || "",
-      TARIFF_CODE: (g0?.TARIFF_CODE ?? wb.TARIFF_CODE) || "",
-      GROSS_WEIGHT: (g0?.GROSS_WEIGHT ?? wb.GROSS_WEIGHT) || "",
-      MARKS: (g0?.MARKS ?? wb.MARKS) || "",
-      PACKAGES_COUNT: (g0?.PACKAGES_COUNT ?? wb.PACKAGES_COUNT) || "",
-      PACKING_METHOD: (g0?.PACKING_METHOD ?? wb.PACKING_METHOD) || "",
-      ANNEXED_DOCS: wb.ANNEXED_DOCS || "",
+      TAKING_PLACE_DATE: wb.TAKING_PLACE_DATE || "",
+      DELIVERY_PLACE_DATE: wb.DELIVERY_PLACE_DATE || "",
       ROUTE: wb.ROUTE || "",
-      DEMURRAGE_LOADING: wb.DEMURRAGE_LOADING || "",
+
+      // ✅ goodsItems هو المصدر الأساسي؛ القديمة → بند واحد من الحقول المسطّحة
+      goodsItems: goodsItemsFromWaybill(wb),
+      ANNEXED_DOCS: wb.ANNEXED_DOCS || "",
+
+      RESERVATION_DAYS: wb.RESERVATION_DAYS ?? 0,
+      FREIGHT_CHARGE: wb.FREIGHT_CHARGE ?? 0,
+      FREIGHT_PAY_PLACE_AR: wb.FREIGHT_PAY_PLACE_AR || "",
+      FREIGHT_PAY_PLACE_EN: wb.FREIGHT_PAY_PLACE_EN || "",
+      DEMURRAGE_LOADING: wb.DEMURRAGE_LOADING ?? 0,
+      CONSIGNER_INSTRUCTION: wb.CONSIGNER_INSTRUCTION || "",
+      SPECIAL_TERMS: wb.SPECIAL_TERMS || "",
+      CASH_ON_DELIVERY: wb.CASH_ON_DELIVERY ?? 0,
       CASH_ON_DELIVERY_NOTES: wb.CASH_ON_DELIVERY_NOTES || "",
     };
 
+    const taking = splitPlaceDate(wb.TAKING_PLACE_DATE);
+    const delivery = splitPlaceDate(wb.DELIVERY_PLACE_DATE);
+    takingPlace.value = taking.place;
+    takingDate.value = taking.date;
+    deliveryPlace.value = delivery.place;
+    deliveryDate.value = delivery.date;
+
     showStampSignature.value = wb.showStampSignature === true;
+
+    const drvList = drivers.value || [];
+    const findDriver = (x) =>
+      (x.VEHICLE_NO &&
+        drvList.find((d) => String(getVehicleNo(d)) === String(x.VEHICLE_NO))) ||
+      (x.DRIVER_NAME &&
+        drvList.find((d) => String(getDriverName(d)) === String(x.DRIVER_NAME)));
 
     // ✅ رجّع السواقين من DRIVER1..50
     const arr = [];
@@ -375,47 +470,51 @@ async function fetchWaybill() {
       });
     }
 
-    // Back-compat قديم
-    if (!arr.length) {
-      const oldAny = String(wb?.DRIVER_NAME || wb?.VEHICLE_NO || "").trim();
-      if (oldAny) {
-        arr.push({
+    if (arr.length) {
+      // ✅ القيمة الفعّالة: المحفوظة بالبوليصة أولاً، وإلا من سجل السائق vehicleType
+      selectedDrivers.value = arr.map((x) => {
+        const found = findDriver(x);
+        return found
+          ? {
+              ...makeDriverRow(found),
+              TYPE_TRANSPORT: x.TYPE_TRANSPORT || driverTypeFromMaster(found),
+            }
+          : x;
+      });
+    } else {
+      // Back-compat: بوليصات الإنشاء القديمة (driver_ids + TYPE_TRANSPORT على مستوى البوليصة)
+      const ids = (Array.isArray(wb?.driver_ids) ? wb.driver_ids : []).map(String);
+      const fromIds = ids
+        .map((id) => drvList.find((d) => String(d?._id || d?.id) === id))
+        .filter(Boolean)
+        .map((d) => ({
+          ...makeDriverRow(d),
+          TYPE_TRANSPORT: wb?.TYPE_TRANSPORT || driverTypeFromMaster(d),
+        }));
+      if (fromIds.length) {
+        selectedDrivers.value = fromIds;
+      } else if (String(wb?.DRIVER_NAME || wb?.VEHICLE_NO || "").trim()) {
+        const x = {
           driverId: null,
           DRIVER_NAME: wb?.DRIVER_NAME || "",
           VEHICLE_NO: wb?.VEHICLE_NO || "",
           VEHICLE_REGION: wb?.VEHICLE_REGION || "",
-          TYPE_TRANSPORT: wb?.TYPE1_TRANSPORT || "",
-        });
+          TYPE_TRANSPORT: wb?.TYPE1_TRANSPORT || wb?.TYPE_TRANSPORT || "",
+        };
+        const found = findDriver(x);
+        selectedDrivers.value = [
+          found ? { ...makeDriverRow(found), TYPE_TRANSPORT: x.TYPE_TRANSPORT || driverTypeFromMaster(found) } : x,
+        ];
+      } else {
+        selectedDrivers.value = [];
       }
     }
-
-    // ✅ match مع DB
-    const drvList = drivers.value || [];
-    selectedDrivers.value = arr.map((x) => {
-      const found =
-        (x.VEHICLE_NO &&
-          drvList.find(
-            (d) => String(getVehicleNo(d)) === String(x.VEHICLE_NO),
-          )) ||
-        (x.DRIVER_NAME &&
-          drvList.find(
-            (d) => String(getDriverName(d)) === String(x.DRIVER_NAME),
-          ));
-      // ✅ القيمة الفعّالة: المحفوظة بالبوليصة أولاً، وإلا من سجل السائق vehicleType
-      return found
-        ? {
-            ...makeSelectedDriverFromDb(found),
-            TYPE_TRANSPORT:
-              x.TYPE_TRANSPORT ||
-              String(found?.vehicleType ?? "").trim() ||
-              inferTransportType(found),
-          }
-        : x;
-    });
 
     // consignor/consignee match
     const consList = consignors.value || [];
     const cneeList = consignees.value || [];
+    selectedConsignor.value = null;
+    selectedConsignee.value = null;
 
     if (form.value.CONSIGNOR_NAME && consList.length) {
       const found = consList.find(
@@ -442,74 +541,25 @@ async function fetchWaybill() {
 ========================= */
 function validate() {
   if (!String(form.value.SERIAL_NO || "").trim()) return "رقم السند مطلوب";
-  if (!String(form.value.DATE || "").trim()) return "تاريخ الوثيقة مطلوب";
-  if (!String(form.value.CONSIGNOR_NAME || "").trim()) return "اختر المرسل";
-  if (!String(form.value.CONSIGNEE_NAME || "").trim())
-    return "اختر المرسل إليه";
-
-  if (!selectedDrivers.value.length) return "اختر سائق واحد على الأقل";
-
-  const r0 = selectedDrivers.value[0];
-  if (!String(r0?.VEHICLE_NO || "").trim())
-    return "رقم المركبة (السائق 1) مطلوب";
-  if (!String(r0?.DRIVER_NAME || "").trim())
-    return "اسم السائق (السائق 1) مطلوب";
-
-  return "";
+  return validateWaybillForm({
+    form: form.value,
+    driverRows: selectedDrivers.value,
+    taking: { place: takingPlace.value, date: takingDate.value },
+    delivery: { place: deliveryPlace.value, date: deliveryDate.value },
+    errors: errors.value,
+  });
 }
 
 function buildSavePayload() {
   const payload = { ...form.value };
+  normalizeNumericFields(payload);
 
-  // ✅ امسح/فرّغ القديم صراحةً (حتى ما يضل بالـ DB)
-  for (let i = 1; i <= 50; i++) {
-    payload[`TYPE${i}_TRANSPORT`] = "";
-    payload[`VEHICLE${i}_NO`] = "";
-    payload[`VEHICLE${i}_REGION`] = "";
-    payload[`DRIVER${i}_NAME`] = "";
-  }
+  // ✅ نفس مخطط الحفظ في شاشة الإنشاء: TYPEn/VEHICLEn/DRIVERn + الحقول القديمة
+  Object.assign(payload, driverRowsToPayload(selectedDrivers.value));
 
-  // ✅ خذ من selectedDrivers (مش driverRows)
-  const cleanedRows = (selectedDrivers.value || []).filter((r) =>
-    String(
-      r?.DRIVER_NAME ||
-        r?.VEHICLE_NO ||
-        r?.VEHICLE_REGION ||
-        r?.TYPE_TRANSPORT ||
-        "",
-    ).trim(),
-  );
+  // ✅ goodsItems كاملة + الحقول المسطّحة القديمة من أول بند
+  Object.assign(payload, legacyGoodsFields(payload.goodsItems));
 
-  cleanedRows.forEach((r, idx) => {
-    const n = idx + 1;
-    payload[`TYPE${n}_TRANSPORT`] = r.TYPE_TRANSPORT || "";
-    payload[`VEHICLE${n}_NO`] = r.VEHICLE_NO || "";
-    payload[`VEHICLE${n}_REGION`] = r.VEHICLE_REGION || "";
-    payload[`DRIVER${n}_NAME`] = r.DRIVER_NAME || "";
-  });
-
-  // ✅ مزامنة goodsItems مع القيم المعدّلة (حتى الـ PDF يستخدم القيم الجديدة)
-  if (savedGoodsItems.value.length) {
-    payload.goodsItems = savedGoodsItems.value.map((it, idx) =>
-      idx === 0
-        ? {
-            ...it,
-            GOODS_NATURE: form.value.GOODS_NATURE || "",
-            TARIFF_CODE: form.value.TARIFF_CODE || "",
-            GROSS_WEIGHT: form.value.GROSS_WEIGHT || "",
-            MARKS: form.value.MARKS || "",
-            PACKAGES_COUNT: form.value.PACKAGES_COUNT || "",
-            PACKING_METHOD: form.value.PACKING_METHOD || "",
-          }
-        : it,
-    );
-  }
-
-  // ✅ back-compat للجدول
-  payload.driver_ids = cleanedRows.map((r) => r.driverId).filter(Boolean);
-  payload.VEHICLE_NO = cleanedRows[0]?.VEHICLE_NO || "";
-  payload.VEHICLE_REGION = cleanedRows[0]?.VEHICLE_REGION || "";
-  payload.DRIVER_NAME = cleanedRows[0]?.DRIVER_NAME || "";
   payload.showStampSignature = showStampSignature.value === true;
 
   return payload;
@@ -582,6 +632,7 @@ function onEsc(e) {
     showConsignorList.value = false;
     showConsigneeList.value = false;
     showDriverList.value = false;
+    goodsNatureOpenIndex.value = -1;
   }
 }
 
@@ -600,7 +651,12 @@ watch(driverQuery, (v) => {
 ========================= */
 onMounted(async () => {
   window.addEventListener("keydown", onEsc);
-  await Promise.all([fetchConsignors(), fetchConsignees(), fetchDrivers()]);
+  await Promise.all([
+    fetchConsignors(),
+    fetchConsignees(),
+    fetchDrivers(),
+    fetchGoodsNatures(),
+  ]);
   await fetchWaybill();
 });
 </script>
@@ -677,50 +733,42 @@ onMounted(async () => {
       </div>
 
       <form v-else id="wbForm" class="form" @submit.prevent="saveWaybill">
-        <!-- Card 1 -->
+        <!-- 1) بيانات البوليصة -->
         <div class="card accent accent--blue">
           <div class="card-head">
-            <h3>معلومات الوثيقة</h3>
+            <h3>بيانات البوليصة</h3>
             <span class="badge">أساسي</span>
           </div>
 
-          <div class="grid">
+          <div class="grid grid--3">
             <label class="field">
-              <span>رقم السند (ثابت)</span>
-              <input v-model="form.SERIAL_NO" type="text" readonly />
+              <span>{{ L.SERIAL_NO }}</span>
+              <input v-model="form.SERIAL_NO" type="text" readonly class="is-readonly" />
             </label>
 
             <label class="field">
-              <span>تاريخ الوثيقة</span>
-              <input
-                v-model="form.DATE"
-                type="text"
-                placeholder="مثال: 2026/01/15"
-              />
+              <span>{{ L.DATE }}</span>
+              <input v-model="form.DATE" type="date" />
             </label>
 
-            <label class="field full">
-              <span>مكان الإصدار</span>
-              <input
-                v-model="form.ISSUING_PLACE"
-                type="text"
-                placeholder="مثال: عمّان"
-              />
+            <label class="field">
+              <span>{{ L.ISSUING_PLACE }}</span>
+              <input v-model="form.ISSUING_PLACE" type="text" />
             </label>
           </div>
         </div>
 
-        <!-- Card 2 -->
+        <!-- 2) أطراف الشحنة -->
         <div class="card accent accent--green">
           <div class="card-head">
-            <h3>المرسل والمرسل إليه</h3>
+            <h3>أطراف الشحنة</h3>
             <span class="badge">DB</span>
           </div>
 
           <div class="grid">
-            <!-- Consignor -->
-            <div class="field full">
-              <span>المرسل</span>
+            <!-- المرسل -->
+            <div class="party-card">
+              <div class="party-title">{{ L.CONSIGNOR }}</div>
 
               <div class="chips" v-if="selectedConsignor">
                 <span class="chip">
@@ -737,7 +785,7 @@ onMounted(async () => {
                     class="picker-input"
                     v-model="consignorQuery"
                     type="text"
-                    placeholder="ابحث..."
+                    :placeholder="PH.CONSIGNOR_SEARCH"
                     @focus="showConsignorList = true"
                   />
                   <button
@@ -776,26 +824,23 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <input
-                v-model="form.CONSIGNOR_NAME"
-                type="text"
-                placeholder="أو اكتب يدويًا..."
-              />
+              <label class="field">
+                <span>{{ L.PARTY_NAME }}</span>
+                <input v-model="form.CONSIGNOR_NAME" type="text" />
+              </label>
+              <label class="field">
+                <span>{{ L.PARTY_ADDRESS }}</span>
+                <input v-model="form.CONSIGNOR_ADDRESS" type="text" />
+              </label>
+              <label class="field">
+                <span>{{ L.PARTY_PHONE }}</span>
+                <input v-model="form.CONSIGNOR_PHONE" type="text" />
+              </label>
             </div>
 
-            <label class="field">
-              <span>هاتف المرسل</span>
-              <input v-model="form.CONSIGNOR_PHONE" type="text" />
-            </label>
-
-            <label class="field full">
-              <span>عنوان المرسل</span>
-              <input v-model="form.CONSIGNOR_ADDRESS" type="text" />
-            </label>
-
-            <!-- Consignee -->
-            <div class="field full">
-              <span>المرسل إليه</span>
+            <!-- المستلم -->
+            <div class="party-card">
+              <div class="party-title">{{ L.CONSIGNEE }}</div>
 
               <div class="chips" v-if="selectedConsignee">
                 <span class="chip">
@@ -812,7 +857,7 @@ onMounted(async () => {
                     class="picker-input"
                     v-model="consigneeQuery"
                     type="text"
-                    placeholder="ابحث..."
+                    :placeholder="PH.CONSIGNEE_SEARCH"
                     @focus="showConsigneeList = true"
                   />
                   <button
@@ -851,91 +896,37 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <input
-                v-model="form.CONSIGNEE_NAME"
-                type="text"
-                placeholder="أو اكتب يدويًا..."
-              />
+              <label class="field">
+                <span>{{ L.PARTY_NAME }}</span>
+                <input v-model="form.CONSIGNEE_NAME" type="text" />
+              </label>
+              <label class="field">
+                <span>{{ L.PARTY_ADDRESS }}</span>
+                <input v-model="form.CONSIGNEE_ADDRESS" type="text" />
+              </label>
+              <label class="field">
+                <span>{{ L.PARTY_PHONE }}</span>
+                <input v-model="form.CONSIGNEE_PHONE" type="text" />
+              </label>
             </div>
-
-            <label class="field">
-              <span>هاتف المرسل إليه</span>
-              <input v-model="form.CONSIGNEE_PHONE" type="text" />
-            </label>
-
-            <label class="field full">
-              <span>عنوان المرسل إليه</span>
-              <input v-model="form.CONSIGNEE_ADDRESS" type="text" />
-            </label>
           </div>
         </div>
 
-        <!-- ✅ Card 3: Multi Drivers -->
+        <!-- 3) السائق والمركبة — (10) (11) (12) -->
         <div class="card">
           <div class="card-head">
-            <h3>السائقين والمركبات (نفس الخانة)</h3>
-            <div class="head-right">
-              <span class="badge">Multi</span>
-              <button
-                type="button"
-                class="btn btn--danger btn--small"
-                @click="clearAllDrivers"
-              >
-                مسح الكل
-              </button>
-            </div>
+            <h3>السائق والمركبة</h3>
           </div>
 
           <div class="field full">
-            <span>اختَر من القائمة (كل اختيار ينضاف Chip وتقدر تحذف)</span>
-
-            <div class="chips" v-if="selectedDrivers.length">
-              <span class="chip" v-for="(d, idx) in selectedDrivers" :key="idx">
-                {{ d.DRIVER_NAME }} — {{ d.VEHICLE_NO }} •
-                {{ d.VEHICLE_REGION }} •
-                <select
-                  v-model="d.TYPE_TRANSPORT"
-                  class="chip-type-select"
-                  title="نوع المركبة / التريلا"
-                  @click.stop
-                >
-                  <option v-if="!d.TYPE_TRANSPORT" value="" disabled>
-                    اختر النوع
-                  </option>
-                  <option
-                    v-for="t in TRANSPORT_TYPE_OPTIONS"
-                    :key="t"
-                    :value="t"
-                  >
-                    {{ t }}
-                  </option>
-                  <option
-                    v-if="
-                      d.TYPE_TRANSPORT &&
-                      !TRANSPORT_TYPE_OPTIONS.includes(d.TYPE_TRANSPORT)
-                    "
-                    :value="d.TYPE_TRANSPORT"
-                  >
-                    {{ d.TYPE_TRANSPORT }}
-                  </option>
-                </select>
-                <button
-                  type="button"
-                  class="chip-x"
-                  @click="removeSelectedDriver(idx)"
-                >
-                  ×
-                </button>
-              </span>
-            </div>
-
+            <span>ابحث برقم السيارة أو اسم السائق</span>
             <div class="picker">
               <div class="picker-row">
                 <input
                   class="picker-input"
                   v-model="driverQuery"
                   type="text"
-                  placeholder="ابحث بالاسم/المركبة/المنطقة..."
+                  :placeholder="PH.DRIVER_SEARCH"
                   @focus="showDriverList = true"
                 />
                 <button
@@ -960,10 +951,8 @@ onMounted(async () => {
                   @click="selectDriver(d)"
                 >
                   <div class="dd-row">
-                    <span class="dd-main">{{ getDriverName(d) }}</span>
-                    <span class="dd-sub"
-                      >{{ getVehicleNo(d) }} • {{ getVehicleRegion(d) }}</span
-                    >
+                    <span class="dd-main">{{ getVehicleNo(d) }}</span>
+                    <span class="dd-sub">{{ getDriverName(d) }}</span>
                   </div>
                 </button>
 
@@ -976,87 +965,285 @@ onMounted(async () => {
               </div>
             </div>
           </div>
+
+          <div v-for="(r, idx) in selectedDrivers" :key="idx" class="wb-driver-row">
+            <label class="field">
+              <span>{{ L.TYPE_TRANSPORT }}</span>
+              <select v-model="r.TYPE_TRANSPORT">
+                <option value="">{{ PH.TYPE_TRANSPORT }}</option>
+                <option
+                  v-for="t in optionsWith(TRANSPORT_TYPE_OPTIONS, r.TYPE_TRANSPORT)"
+                  :key="t"
+                  :value="t"
+                >
+                  {{ t }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span>{{ L.VEHICLE_NO }}</span>
+              <input :value="r.VEHICLE_NO" type="text" readonly class="is-readonly" />
+            </label>
+            <label class="field">
+              <span>{{ L.VEHICLE_REGION }}</span>
+              <input :value="r.VEHICLE_REGION" type="text" readonly class="is-readonly" />
+            </label>
+            <label class="field">
+              <span>{{ L.DRIVER_NAME }}</span>
+              <input :value="r.DRIVER_NAME" type="text" readonly class="is-readonly" />
+            </label>
+            <button
+              type="button"
+              class="btn btn--danger btn--small"
+              title="حذف"
+              @click="removeSelectedDriver(idx)"
+            >
+              ×
+            </button>
+          </div>
+          <button
+            v-if="selectedDrivers.length"
+            type="button"
+            class="btn btn--secondary btn--small"
+            @click="clearAllDrivers"
+          >
+            مسح الكل
+          </button>
         </div>
 
-        <!-- Card 4 -->
+        <!-- 4) خط السير والاستلام والتسليم -->
         <div class="card">
           <div class="card-head">
-            <h3>بيانات البضاعة</h3>
+            <h3>خط السير والاستلام والتسليم</h3>
+          </div>
+
+          <div class="grid">
+            <div class="field">
+              <span>{{ L.TAKING_PLACE_DATE }}</span>
+              <div class="grid">
+                <div>
+                  <input
+                    v-model="takingPlace"
+                    list="wb-location-options"
+                    type="text"
+                    :class="{ 'is-invalid': errors.takingPlace }"
+                    :placeholder="PH.TAKING_PLACE"
+                  />
+                  <div v-if="errors.takingPlace" class="error-msg">
+                    {{ errors.takingPlace }}
+                  </div>
+                </div>
+                <div>
+                  <input
+                    v-model="takingDate"
+                    type="date"
+                    :class="{ 'is-invalid': errors.takingDate }"
+                  />
+                  <div v-if="errors.takingDate" class="error-msg">
+                    {{ errors.takingDate }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <span>{{ L.DELIVERY_PLACE_DATE }}</span>
+              <div class="grid">
+                <div>
+                  <input
+                    v-model="deliveryPlace"
+                    list="wb-location-options"
+                    type="text"
+                    :class="{ 'is-invalid': errors.deliveryPlace }"
+                    :placeholder="PH.DELIVERY_PLACE"
+                  />
+                  <div v-if="errors.deliveryPlace" class="error-msg">
+                    {{ errors.deliveryPlace }}
+                  </div>
+                </div>
+                <div>
+                  <input
+                    v-model="deliveryDate"
+                    type="date"
+                    :class="{ 'is-invalid': errors.deliveryDate }"
+                  />
+                  <div v-if="errors.deliveryDate" class="error-msg">
+                    {{ errors.deliveryDate }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <label class="field full">
+              <span>{{ L.ROUTE }}</span>
+              <input
+                v-model="form.ROUTE"
+                list="wb-location-options"
+                type="text"
+                :class="{
+                  'is-invalid': errors.route,
+                  'is-readonly': !!(selectedConsignor && selectedConsignee),
+                }"
+                :readonly="!!(selectedConsignor && selectedConsignee)"
+                :placeholder="PH.ROUTE"
+              />
+              <div v-if="errors.route" class="error-msg">
+                {{ errors.route }}
+              </div>
+            </label>
+          </div>
+          <datalist id="wb-location-options">
+            <option
+              v-for="loc in locationOptions"
+              :key="loc"
+              :value="loc"
+            ></option>
+          </datalist>
+        </div>
+
+        <!-- 5) تفاصيل البضاعة — (15) → (20) بنفس ترتيب القالب المطبوع -->
+        <div class="card">
+          <div class="card-head">
+            <h3>تفاصيل البضاعة</h3>
             <span class="badge">تفاصيل</span>
           </div>
 
-          <div class="grid">
-            <label class="field full">
-              <span>طبيعة البضاعة</span>
-              <input v-model="form.GOODS_NATURE" type="text" />
-            </label>
-
+          <div class="wb-goods-row" v-for="(g, i) in form.goodsItems" :key="i">
+            <div class="wb-goods-idx">{{ i + 1 }}</div>
             <label class="field">
-              <span>قيمة البضاعة</span>
-              <input v-model="form.TARIFF_CODE" type="text" />
+              <span>{{ L.MARKS }}</span>
+              <input v-model="g.MARKS" type="text" />
             </label>
-
             <label class="field">
-              <span>الوزن القائم</span>
-              <input v-model="form.GROSS_WEIGHT" type="text" />
+              <span>{{ L.PACKAGES_COUNT }}</span>
+              <input v-model="g.PACKAGES_COUNT" type="number" min="0" step="1" />
             </label>
-
             <label class="field">
-              <span>العلامات والأرقام</span>
-              <input v-model="form.MARKS" type="text" />
+              <span>{{ L.PACKING_METHOD }}</span>
+              <select v-model="g.PACKING_METHOD">
+                <option
+                  v-for="p in optionsWith(PACKING_METHOD_OPTIONS, g.PACKING_METHOD)"
+                  :key="p"
+                  :value="p"
+                >
+                  {{ p }}
+                </option>
+              </select>
             </label>
-
+            <div class="field" style="position: relative">
+              <span>{{ L.GOODS_NATURE }}</span>
+              <input
+                :value="g.GOODS_NATURE"
+                type="text"
+                @focus="goodsNatureOpenIndex = i; goodsNatureQuery = g.GOODS_NATURE || ''"
+                @input="g.GOODS_NATURE = $event.target.value; goodsNatureQuery = $event.target.value"
+                @keydown.esc="goodsNatureOpenIndex = -1"
+              />
+              <div class="dropdown wb-goods-dd" v-if="goodsNatureOpenIndex === i">
+                <div
+                  v-for="n in filteredGoodsNatures"
+                  :key="n"
+                  class="dropdown-item"
+                  @click="selectGoodsNature(form.goodsItems, i, n)"
+                >
+                  {{ n }}
+                </div>
+                <div
+                  v-if="isNewGoodsNature()"
+                  class="dropdown-item"
+                  style="color: #1976d2; font-weight: 700"
+                  @click="addGoodsNature(form.goodsItems, i)"
+                >
+                  ➕ إضافة "{{ goodsNatureQuery }}"
+                </div>
+                <div
+                  class="dropdown-item muted"
+                  v-if="filteredGoodsNatures.length === 0 && !isNewGoodsNature()"
+                >
+                  لا توجد نتائج
+                </div>
+              </div>
+            </div>
             <label class="field">
-              <span>عدد الطرود</span>
-              <input v-model="form.PACKAGES_COUNT" type="text" />
+              <span>{{ L.TARIFF_CODE }}</span>
+              <input v-model="g.TARIFF_CODE" type="text" />
             </label>
-
             <label class="field">
-              <span>نوع التغليف</span>
-              <input v-model="form.PACKING_METHOD" type="text" />
+              <span>{{ L.GROSS_WEIGHT }}</span>
+              <input v-model="g.GROSS_WEIGHT" type="number" min="0" step="0.001" />
             </label>
-
-            <label class="field full">
-              <span>المستندات المرفقة</span>
-              <input v-model="form.ANNEXED_DOCS" type="text" />
-            </label>
+            <button
+              type="button"
+              class="btn btn--danger btn--small"
+              title="حذف"
+              @click="removeGoodsItem(i)"
+            >
+              ×
+            </button>
           </div>
+
+          <div style="margin-top: 6px">
+            <button type="button" class="btn btn--secondary btn--small" @click="addGoodsItem">
+              ➕ إضافة تفصيلة
+            </button>
+          </div>
+
+          <label class="field full" style="margin-top: 12px">
+            <span>{{ L.ANNEXED_DOCS }}</span>
+            <input
+              v-model="form.ANNEXED_DOCS"
+              type="text"
+              :placeholder="PH.ANNEXED_DOCS"
+            />
+          </label>
         </div>
 
-        <!-- Card 5: ملاحظات إضافية -->
+        <!-- 6) تعليمات وأجور -->
         <div class="card">
           <div class="card-head">
-            <h3>ملاحظات إضافية</h3>
-            <span class="badge">ملاحظات</span>
+            <h3>تعليمات وأجور</h3>
           </div>
-          <div class="grid">
-            <label class="field full">
-              <span>ملاحظات إضافية</span>
+
+          <div class="grid grid--3">
+            <label class="field">
+              <span>{{ L.RESERVATION_DAYS }}</span>
+              <input v-model.number="form.RESERVATION_DAYS" type="number" min="0" step="1" />
+            </label>
+            <label class="field">
+              <span>{{ L.FREIGHT_CHARGE }}</span>
+              <input v-model.number="form.FREIGHT_CHARGE" type="number" min="0" step="0.001" />
+            </label>
+            <label class="field">
+              <span>{{ L.FREIGHT_PAY_PLACE_AR }}</span>
+              <input v-model="form.FREIGHT_PAY_PLACE_AR" type="text" />
+            </label>
+            <label class="field">
+              <span>{{ L.FREIGHT_PAY_PLACE_EN }}</span>
+              <input v-model="form.FREIGHT_PAY_PLACE_EN" type="text" />
+            </label>
+            <label class="field">
+              <span>{{ L.DEMURRAGE_LOADING }}</span>
+              <input v-model.number="form.DEMURRAGE_LOADING" type="number" min="0" step="1" />
+            </label>
+          </div>
+          <div class="grid grid--3" style="margin-top: 10px">
+            <label class="field">
+              <span>{{ L.CONSIGNER_INSTRUCTION }}</span>
+              <textarea v-model="form.CONSIGNER_INSTRUCTION" rows="2"></textarea>
+            </label>
+            <label class="field">
+              <span>{{ L.SPECIAL_TERMS }}</span>
+              <textarea v-model="form.SPECIAL_TERMS" rows="2"></textarea>
+            </label>
+            <label class="field">
+              <span>{{ L.CASH_ON_DELIVERY }}</span>
+              <textarea v-model="form.CASH_ON_DELIVERY" rows="2"></textarea>
+            </label>
+            <label class="field">
+              <span>{{ L.CASH_ON_DELIVERY_NOTES }}</span>
               <textarea v-model="form.CASH_ON_DELIVERY_NOTES" rows="3"></textarea>
             </label>
           </div>
         </div>
-
-        <!-- Card 5 -->
-        <div class="card">
-          <div class="card-head">
-            <h3>خط السير ومدة المكوث</h3>
-            <span class="badge">مسار</span>
-          </div>
-
-          <div class="grid">
-            <label class="field full">
-              <span>خط السير</span>
-              <input v-model="form.ROUTE" type="text" />
-            </label>
-
-            <label class="field">
-              <span>مدة المكوث على أرض التحميل</span>
-              <input v-model="form.DEMURRAGE_LOADING" type="text" />
-            </label>
-          </div>
-        </div>
-
 
         <div class="footer-actions">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">
@@ -1086,6 +1273,66 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* ✅ نفس تخطيط شاشة الإنشاء */
+.grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.party-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 12px;
+  background: #fafbfd;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.party-title {
+  font-weight: 900;
+  font-size: 14px;
+}
+/* ✅ صف سائق: (10) (11) (11) (12) + حذف */
+.wb-driver-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+/* ✅ صف بضاعة: # (15) (16) (17) (18) (19) (20) + حذف */
+.wb-goods-row {
+  display: grid;
+  grid-template-columns: 28px repeat(6, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+.wb-goods-idx {
+  font-weight: 700;
+  text-align: center;
+  padding-bottom: 10px;
+}
+.wb-goods-dd {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+}
+.is-readonly {
+  background: #f3f5f8;
+  color: #4b5563;
+}
+.is-invalid {
+  border-color: #ef4444 !important;
+  background: #fef2f2;
+}
+.error-msg {
+  color: #ef4444;
+  font-size: 11px;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
 /* نفس CSS تبعك بدون تغيير */
 :global(body) {
   margin: 0;
@@ -1293,7 +1540,9 @@ onMounted(async () => {
   font-weight: 900;
   color: #374151;
 }
-input {
+input,
+select,
+textarea {
   width: 100%;
   border-radius: 14px;
   border: 1px solid #e5e7eb;
@@ -1303,7 +1552,9 @@ input {
   background: #fff;
   color: #111827;
 }
-input:focus {
+input:focus,
+select:focus,
+textarea:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
 }
