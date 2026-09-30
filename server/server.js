@@ -919,6 +919,96 @@ function resolveAmount(item) {
   );
 }
 
+// ✅ بنود الفاتورة الأصلية كما أُرسلت فعلياً واعتمدتها JoFotara (من
+// einv_signed_invoice). JoFotara تطابق سعر الوحدة في فاتورة الإرجاع مع هذه
+// القيم حرفياً (CORE-400-003)، وقد تختلف عن البنود المحفوظة حالياً في DB.
+function decodeXmlText(v) {
+  return String(v || "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+function parseSignedInvoiceLines(base64Xml) {
+  let xml = "";
+  try {
+    xml = Buffer.from(String(base64Xml || ""), "base64").toString("utf8");
+  } catch {
+    return [];
+  }
+  const P = "(?:[\\w-]+:)?";
+  const tag = (block, name) => {
+    const m = block.match(
+      new RegExp(`<${P}${name}(?:\\s[^>]*)?>([^<]*)</${P}${name}>`),
+    );
+    return m ? decodeXmlText(m[1]) : null;
+  };
+  const lineRe = new RegExp(
+    `<${P}InvoiceLine(?:\\s[^>]*)?>([\\s\\S]*?)</${P}InvoiceLine>`,
+    "g",
+  );
+  const lines = [];
+  for (const m of xml.matchAll(lineRe)) {
+    const block = m[1];
+    const priceBlock =
+      (block.match(new RegExp(`<${P}Price(?:\\s[^>]*)?>([\\s\\S]*?)</${P}Price>`)) ||
+        [])[1] || "";
+    const quantity = Number(tag(block, "InvoicedQuantity"));
+    const unitPrice = Number(tag(priceBlock, "PriceAmount"));
+    const lineNet = Number(tag(block, "LineExtensionAmount"));
+    const discount = Number(tag(priceBlock, "Amount") || 0);
+    if (![quantity, unitPrice, lineNet].every(Number.isFinite)) return [];
+    lines.push({
+      id: Number(tag(block, "ID")),
+      name: tag(block, "Name") || "",
+      quantity,
+      unitPrice,
+      lineNet,
+      discount: Number.isFinite(discount) ? discount : 0,
+    });
+  }
+  return lines;
+}
+
+// ✅ ربط بنود DB ببنود XML الأصلي: buildUblInvoiceXml يرقّم البنود (cbc:ID =
+// idx + 1) على نفس البنود المفلترة (desc أو amount_jod) وبنفس الترتيب —
+// هذا هو الربط الأساسي، مع تأكيد تطابق الاسم. الوصف وحده يُستخدم كاحتياط
+// فقط عندما يكون فريداً في الطرفين. بند غير مربوط → يبقى على بيانات DB.
+function mapItemsToSignedLines(items, xmlLines) {
+  const byIndex = new Map();
+  if (!xmlLines.length) return byIndex;
+  const norm = (v) => String(v || "").replace(/\s+/g, " ").trim();
+  const validIdx = items
+    .map((x, i) => i)
+    .filter(
+      (i) =>
+        String(items[i]?.desc || "").trim() || Number(items[i]?.amount_jod || 0),
+    );
+
+  if (validIdx.length === xmlLines.length) {
+    const byId = new Map(xmlLines.map((l) => [l.id, l]));
+    const paired = validIdx.map((i, k) => [i, byId.get(k + 1) || xmlLines[k]]);
+    if (paired.every(([i, l]) => l && norm(l.name) === norm(items[i]?.desc))) {
+      for (const [i, l] of paired) byIndex.set(i, l);
+      return byIndex;
+    }
+  }
+
+  const count = (arr) =>
+    arr.reduce((m, v) => m.set(v, (m.get(v) || 0) + 1), new Map());
+  const dbCounts = count(validIdx.map((i) => norm(items[i]?.desc)));
+  const xmlCounts = count(xmlLines.map((l) => norm(l.name)));
+  for (const i of validIdx) {
+    const d = norm(items[i]?.desc);
+    if (d && dbCounts.get(d) === 1 && xmlCounts.get(d) === 1)
+      byIndex.set(i, xmlLines.find((l) => norm(l.name) === d));
+  }
+  return byIndex;
+}
+
 // المتبقي القابل للإرجاع لكل بند في الفاتورة الأصلية، بعد خصم كل فواتير
 // الإرجاع (CREDIT_NOTE) التي أُنشئت سابقاً وتشير لنفس الفاتورة الأصلية
 async function computeRefundInfo(originalInvoiceId) {
@@ -946,6 +1036,12 @@ async function computeRefundInfo(originalInvoiceId) {
   }).sort({ created_at: -1 });
 
   const items = Array.isArray(original.items) ? original.items : [];
+  const signedLineByIndex = isInvoiceEinvApproved(original)
+    ? mapItemsToSignedLines(
+        items,
+        parseSignedInvoiceLines(original.einv_signed_invoice),
+      )
+    : new Map();
   const returnedQtyByIndex = new Array(items.length).fill(0);
   const returnedAmtByIndex = new Array(items.length).fill(0);
 
@@ -964,6 +1060,33 @@ async function computeRefundInfo(originalInvoiceId) {
   }
 
   const itemsWithRemaining = items.map((it, idx) => {
+    // ✅ فاتورة معتمدة: الكمية وسعر الوحدة والخصم من XML الموقّع الأصلي
+    const signed = signedLineByIndex.get(idx);
+    if (signed) {
+      const quantity = signed.quantity;
+      const unitPrice = signed.unitPrice;
+      const discount = signed.discount;
+      const lineNet = signed.lineNet;
+      const returnedQty = Number((returnedQtyByIndex[idx] || 0).toFixed(3));
+      const returnedAmount = Number((returnedAmtByIndex[idx] || 0).toFixed(3));
+      return {
+        index: idx,
+        desc: it.desc,
+        quantity,
+        unitPrice,
+        discount,
+        lineNet: Number(lineNet.toFixed(3)),
+        returnedQty,
+        returnedAmount,
+        remainingQty: Math.max(0, Number((quantity - returnedQty).toFixed(3))),
+        remainingAmount: Math.max(
+          0,
+          Number((lineNet - returnedAmount).toFixed(3)),
+        ),
+        priceSource: "einv_signed_invoice",
+      };
+    }
+
     const quantity = Number(it.quantity || 0);
     const discount = Number(it.discount || 0);
     const lineNet = resolveAmount(it);
@@ -993,6 +1116,7 @@ async function computeRefundInfo(originalInvoiceId) {
       returnedAmount,
       remainingQty,
       remainingAmount,
+      priceSource: "db",
     };
   });
 
@@ -1901,6 +2025,47 @@ function buildUblCreditNoteXml(inv, originalInv) {
   return xml.trim();
 }
 
+// ✅ JoFotara ترجع جسم الرد كنص (responseType: "text") — نفكّه JSON إن أمكن
+function parseEInvResponseBody(body) {
+  if (typeof body !== "string") return body;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+// ✅ تجميع كل رسائل التحقق (ERRORS / WARNINGS / INFO) من EINV_RESULTS
+// مع الحفاظ على type/code/message/location كما هي
+function extractEInvMessages(data) {
+  const out = [];
+  const results = data && typeof data === "object" ? data.EINV_RESULTS : null;
+  if (!results || typeof results !== "object") return out;
+  for (const [group, list] of Object.entries(results)) {
+    if (!Array.isArray(list)) continue;
+    for (const m of list) {
+      if (!m || typeof m !== "object") continue;
+      const code = m.EINV_CODE ?? m.code ?? "";
+      const message = m.EINV_MESSAGE ?? m.message ?? "";
+      const category = m.EINV_CATEGORY ?? m.category ?? "";
+      const location = m.EINV_LOCATION ?? m.location ?? "";
+      out.push({
+        group,
+        type: m.type ?? m.EINV_TYPE ?? m.EINV_STATUS ?? group,
+        code,
+        category,
+        message,
+        location,
+        raw: m,
+        text: [code, message, location && `@ ${location}`]
+          .filter(Boolean)
+          .join(" "),
+      });
+    }
+  }
+  return out;
+}
+
 async function submitInvoiceToEInv(invoiceId, res = null) {
   const inv = await Invoice.findById(invoiceId);
   if (!inv) {
@@ -2020,12 +2185,16 @@ async function submitInvoiceToEInv(invoiceId, res = null) {
     );
 
     if (resp.status >= 400) {
+      const responseData = parseEInvResponseBody(resp.data);
+      const messages = extractEInvMessages(responseData);
       console.error("EINV rejected status:", resp.status);
-      console.error("EINV rejected body:", resp.data);
+      console.error("JoFotara rejection:", JSON.stringify(responseData, null, 2));
 
       inv.einv_status = "failed";
-      inv.einv_error = `EINV rejected: HTTP ${resp.status}`;
-      inv.einv_response = { status: resp.status, data: resp.data };
+      inv.einv_error = messages.length
+        ? `EINV rejected: HTTP ${resp.status} — ${messages.map((m) => m.text).join(" | ")}`
+        : `EINV rejected: HTTP ${resp.status}`;
+      inv.einv_response = { status: resp.status, data: responseData };
       inv.einv_submitted_at = null;
       await inv.save();
 
@@ -2033,12 +2202,14 @@ async function submitInvoiceToEInv(invoiceId, res = null) {
         return res.status(resp.status).json({
           error: "EINV rejected",
           status: resp.status,
-          data: resp.data,
+          messages,
+          data: responseData,
         });
       return {
         ok: false,
         error: inv.einv_error,
         status: resp.status,
+        messages,
         einv_status: "failed",
       };
     }

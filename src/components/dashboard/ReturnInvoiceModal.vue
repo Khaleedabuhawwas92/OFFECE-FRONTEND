@@ -191,10 +191,15 @@ async function submitToJofotara() {
     );
     einvResult.value = "تم إرسال فاتورة الإرجاع إلى JoFotara بنجاح ✅";
   } catch (e) {
-    console.error("einv submit error:", e);
-    einvResult.value =
-      "❌ فشل الإرسال إلى JoFotara: " +
-      (e?.response?.data?.error || e?.response?.data?.message || e.message);
+    console.error("einv submit error:", e, e?.response?.data);
+    // ✅ رسائل التحقق الفعلية من JoFotara (ERRORS أولاً ثم WARNINGS)
+    const msgs = Array.isArray(e?.response?.data?.messages)
+      ? e.response.data.messages.filter((m) => m.group !== "INFO")
+      : [];
+    const detail = msgs.length
+      ? [...new Set(msgs.map((m) => m.text))].join(" | ")
+      : e?.response?.data?.error || e?.response?.data?.message || e.message;
+    einvResult.value = "❌ فشل الإرسال إلى JoFotara: " + detail;
   } finally {
     einvSubmitting.value = false;
   }
