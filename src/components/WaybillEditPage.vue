@@ -79,7 +79,7 @@ const {
 /* =========================
    Form — نفس حقول شاشة الإنشاء
 ========================= */
-const form = ref({
+const makeEmptyForm = () => ({
   _id: null,
   SERIAL_NO: "",
   DATE: "",
@@ -110,6 +110,7 @@ const form = ref({
   CASH_ON_DELIVERY: 0,
   CASH_ON_DELIVERY_NOTES: "",
 });
+const form = ref(makeEmptyForm());
 
 /* =========================
    Route section split fields ("مكان - YYYY-MM-DD")
@@ -392,13 +393,42 @@ function removeGoodsItem(i) {
 /* =========================
    Fetch Waybill
 ========================= */
+// ✅ حماية من الردود القديمة: فقط آخر طلب (لنفس الـ id الحالي) يعبّي الفورم
+let loadSeq = 0;
+
+// ✅ تصفير حالة الشاشة قبل تحميل بوليصة أخرى (لا تبقى بيانات البوليصة السابقة)
+function resetEditState() {
+  form.value = makeEmptyForm();
+  selectedDrivers.value = [];
+  selectedConsignor.value = null;
+  selectedConsignee.value = null;
+  takingPlace.value = "";
+  takingDate.value = "";
+  deliveryPlace.value = "";
+  deliveryDate.value = "";
+  for (const k of Object.keys(errors.value)) errors.value[k] = "";
+  showStampSignature.value = false;
+  consignorQuery.value = "";
+  consigneeQuery.value = "";
+  driverQuery.value = "";
+  showConsignorList.value = false;
+  showConsigneeList.value = false;
+  showDriverList.value = false;
+  goodsNatureOpenIndex.value = -1;
+}
+
 async function fetchWaybill() {
+  const id = waybillId.value;
+  const seq = ++loadSeq;
+  const isCurrent = () => seq === loadSeq && id === waybillId.value;
+
   loading.value = true;
   errorMessage.value = "";
   successMessage.value = "";
 
   try {
-    const res = await axios.get(`${API_BASE}/api/waybills/${waybillId.value}`);
+    const res = await axios.get(`${API_BASE}/api/waybills/${id}`);
+    if (!isCurrent()) return;
     const wb = res.data || {};
 
     form.value = {
@@ -529,10 +559,11 @@ async function fetchWaybill() {
       if (found) selectedConsignee.value = found;
     }
   } catch (err) {
+    if (!isCurrent()) return;
     console.error(err);
     errorMessage.value = "تعذّر تحميل بيانات البوليصة.";
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 }
 
@@ -644,6 +675,14 @@ watch(consigneeQuery, (v) => {
 });
 watch(driverQuery, (v) => {
   if (v && v.trim()) showDriverList.value = true;
+});
+
+// ✅ نفس المكوّن يبقى مركّباً عند الانتقال /waybills/A/edit → /waybills/B/edit
+// (vue-router يعيد استخدامه) — لذلك نعيد التحميل عند تغيّر الـ id
+watch(waybillId, (id, oldId) => {
+  if (!id || id === oldId) return;
+  resetEditState();
+  fetchWaybill();
 });
 
 /* =========================
