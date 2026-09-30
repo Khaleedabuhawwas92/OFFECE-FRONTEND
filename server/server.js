@@ -900,6 +900,25 @@ function extractUuidFromSignedInvoice(base64Xml) {
   }
 }
 
+// ✅ القيمة الصافية الفعلية لبند فاتورة (بعد الخصم) — نفس ترتيب الحقول
+// المعتمد في تقرير عمولة المكتب. فواتير قديمة/حالية تحفظ القيمة في
+// amount_jod/amount مع unitPrice = 0 و lineNet = 0.
+function resolveAmount(item) {
+  let amt = Number(item.amount_jod);
+  if (amt > 0) return amt;
+  amt = Number(item.lineNet);
+  if (amt > 0) return amt;
+  amt = Number(item.total);
+  if (amt > 0) return amt;
+  amt = Number(item.amount);
+  if (amt > 0) return amt;
+  return Math.max(
+    0,
+    (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) -
+      (Number(item.discount) || 0),
+  );
+}
+
 // المتبقي القابل للإرجاع لكل بند في الفاتورة الأصلية، بعد خصم كل فواتير
 // الإرجاع (CREDIT_NOTE) التي أُنشئت سابقاً وتشير لنفس الفاتورة الأصلية
 async function computeRefundInfo(originalInvoiceId) {
@@ -946,9 +965,18 @@ async function computeRefundInfo(originalInvoiceId) {
 
   const itemsWithRemaining = items.map((it, idx) => {
     const quantity = Number(it.quantity || 0);
-    const unitPrice = Number(it.unitPrice || 0);
     const discount = Number(it.discount || 0);
-    const lineNet = Math.max(0, quantity * unitPrice - discount);
+    const lineNet = resolveAmount(it);
+    // ✅ unitPrice مخزّن صالح → يُستخدم كما هو؛ وإلا يُشتق من إجمالي البند
+    // (قبل الخصم) ÷ الكمية الأصلية — دون تقريب كي تتطابق
+    // quantity × unitPrice − discount مع lineNet تماماً عند الإرجاع الكامل
+    const storedUnitPrice = Number(it.unitPrice || 0);
+    const unitPrice =
+      storedUnitPrice > 0
+        ? storedUnitPrice
+        : quantity > 0
+          ? (lineNet + discount) / quantity
+          : 0;
     const returnedQty = Number((returnedQtyByIndex[idx] || 0).toFixed(3));
     const returnedAmount = Number((returnedAmtByIndex[idx] || 0).toFixed(3));
     const remainingQty = Math.max(0, Number((quantity - returnedQty).toFixed(3)));
@@ -1205,22 +1233,6 @@ app.get("/api/reports/office-commission", async (req, res) => {
       // normalize الوصف ثم contains/includes
       const nd = normalizeDesc(item.desc);
       return nd.includes("عمولة مكتب") || nd.includes("عمولة المكتب");
-    }
-
-    function resolveAmount(item) {
-      let amt = Number(item.amount_jod);
-      if (amt > 0) return amt;
-      amt = Number(item.lineNet);
-      if (amt > 0) return amt;
-      amt = Number(item.total);
-      if (amt > 0) return amt;
-      amt = Number(item.amount);
-      if (amt > 0) return amt;
-      return Math.max(
-        0,
-        (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) -
-          (Number(item.discount) || 0),
-      );
     }
 
     const results = [];

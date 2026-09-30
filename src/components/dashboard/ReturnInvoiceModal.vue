@@ -347,7 +347,7 @@ onMounted(fetchInfo);
                   </td>
                   <td class="ri-desc">{{ it.desc }}</td>
                   <td dir="ltr">{{ it.quantity }}</td>
-                  <td dir="ltr">{{ it.unitPrice }}</td>
+                  <td dir="ltr">{{ Number(it.unitPrice || 0).toFixed(3) }}</td>
                   <td dir="ltr">{{ it.remainingQty }}</td>
                   <td>
                     <input
