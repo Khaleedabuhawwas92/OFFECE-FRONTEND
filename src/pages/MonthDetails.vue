@@ -52,6 +52,15 @@ function formatDateTime(iso) {
   return `${yyyy}-${mm}-${dd} ${hhStr}:${min} ${ampm}`;
 }
 
+// عدد السيارات الفعلية في الفاتورة: أرقام مركبات غير فارغة وبدون تكرار
+// (vehicle_numbers_snapshot: عنصر لكل مركبة، يحفظه السيرفر من السائقين المختارين)
+function invoiceVehicleCount(inv) {
+  const raw = Array.isArray(inv?.vehicle_numbers_snapshot)
+    ? inv.vehicle_numbers_snapshot
+    : [];
+  return new Set(raw.map((v) => String(v ?? "").trim()).filter(Boolean)).size;
+}
+
 // ✅ الطباعة تستخدم نفس الصفوف المفلترة الظاهرة على الشاشة حسب التبويب
 // الحالي (shownInvoices / shownWaybills / shownCommission) — بدون إعادة جلب.
 async function printMonthStatement() {
@@ -110,13 +119,29 @@ async function printMonthStatement() {
     return;
   }
 
+  // ✅ عرض فقط: خانة المجموع تعرض عدد السيارات بدل المبلغ الإجمالي
+  // (مبالغ الفواتير في الصفوف وفي قاعدة البيانات دون تغيير)
+  const vehiclesTotal = shownInvoices.value.reduce(
+    (acc, x) => acc + invoiceVehicleCount(x),
+    0,
+  );
   await printStatementReport({
     ...base,
+    totalLabel: "*** المجموع ***",
+    totalDisplay: `عدد السيارات: ${vehiclesTotal}`,
+    columns: [
+      { key: "invoice_number", label: "رقم الفاتورة", cls: "center", dir: "ltr" },
+      { key: "company", label: "اسم الشركة" },
+      { key: "created_at", label: "تاريخ الإدخال", cls: "center", dir: "ltr" },
+      { key: "value", label: "قيمة الفاتورة", cls: "right", dir: "ltr", money: true },
+      { key: "vehicles_count", label: "عدد السيارات", cls: "center" },
+    ],
     rows: shownInvoices.value.map((x) => ({
       invoice_number: x.invoice_number ?? "",
       company: x.company ?? "",
       created_at: (x.created_at || x.date || "").slice(0, 10),
       value: x.value_jod ?? 0,
+      vehicles_count: invoiceVehicleCount(x),
     })),
   });
 }

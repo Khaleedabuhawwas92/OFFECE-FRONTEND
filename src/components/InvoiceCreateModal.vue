@@ -254,23 +254,54 @@ const filteredDrivers = computed(() => {
   });
 });
 
-const selectedDriver = computed(() => {
-  const id = (form.value.driver_ids || [])[0];
-  if (!id) return null;
-  return (drivers.value || []).find((d) => d._id === id) || null;
+// ✅ عدة سائقين: driver_ids = [id1, id2, ...] (السيرفر يحفظ أسماءهم/مركباتهم كـ snapshot)
+const selectedDrivers = computed(() => {
+  const list = drivers.value || [];
+  return (form.value.driver_ids || [])
+    .map((id) => list.find((d) => String(d._id) === String(id)))
+    .filter(Boolean);
 });
+// توافق مع الكود القديم (أول سائق)
+const selectedDriver = computed(() => selectedDrivers.value[0] || null);
+
+// ✅ سطر السائقين التلقائي في الملاحظات — يُحدَّث هذا السطر فقط، وباقي الملاحظات كما هي
+const DRIVERS_NOTE_PREFIX = "السائقون:";
+function syncDriversNoteLine() {
+  const names = [
+    ...new Set(
+      selectedDrivers.value
+        .map((d) => String(getDriverName(d) || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const lines = String(form.value.notes || "")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith(DRIVERS_NOTE_PREFIX));
+  if (names.length) lines.unshift(`${DRIVERS_NOTE_PREFIX} ${names.join("، ")}`);
+  form.value.notes = lines.join("\n").replace(/^\n+|\n+$/g, "");
+}
 
 function selectDriver(d) {
   const id = d?._id;
   if (!id) return;
-  form.value.driver_ids = [id];
+  const ids = (form.value.driver_ids || []).map(String);
+  if (!ids.includes(String(id))) form.value.driver_ids = [...ids, id];
   driverQuery.value = "";
   showDriverList.value = false;
+  syncDriversNoteLine();
+}
+
+function removeDriver(id) {
+  form.value.driver_ids = (form.value.driver_ids || []).filter(
+    (x) => String(x) !== String(id),
+  );
+  syncDriversNoteLine();
 }
 
 function clearDriver() {
   form.value.driver_ids = [];
   driverQuery.value = "";
+  syncDriversNoteLine();
 }
 
 /* =========================
@@ -420,12 +451,12 @@ async function buildPreview() {
     })
     .join("");
 
-  const driverNamesArr = selectedDriver.value
-    ? [getDriverName(selectedDriver.value)].filter(Boolean)
-    : [];
-  const vehicleNosArr = selectedDriver.value
-    ? [getVehicleNo(selectedDriver.value)].filter(Boolean)
-    : [];
+  const driverNamesArr = selectedDrivers.value
+    .map((d) => getDriverName(d))
+    .filter(Boolean);
+  const vehicleNosArr = [
+    ...new Set(selectedDrivers.value.map((d) => getVehicleNo(d)).filter(Boolean)),
+  ];
 
   const esc = (s) =>
     String(s ?? "")
@@ -749,10 +780,10 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
               <div class="form-group">
                 <label>السائق</label>
 
-                <div class="chips" v-if="selectedDriver">
-                  <span class="chip">
-                    {{ getDriverName(selectedDriver) }}
-                    <button type="button" class="chip-x" @click="clearDriver">
+                <div class="chips" v-if="selectedDrivers.length">
+                  <span class="chip" v-for="d in selectedDrivers" :key="d._id">
+                    {{ getDriverName(d) }}
+                    <button type="button" class="chip-x" @click="removeDriver(d._id)">
                       ×
                     </button>
                   </span>
@@ -884,10 +915,10 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
               <div class="form-group">
                 <label>السائق</label>
 
-                <div class="chips" v-if="selectedDriver">
-                  <span class="chip">
-                    {{ getDriverName(selectedDriver) }}
-                    <button type="button" class="chip-x" @click="clearDriver">
+                <div class="chips" v-if="selectedDrivers.length">
+                  <span class="chip" v-for="d in selectedDrivers" :key="d._id">
+                    {{ getDriverName(d) }}
+                    <button type="button" class="chip-x" @click="removeDriver(d._id)">
                       ×
                     </button>
                   </span>
@@ -1188,7 +1219,7 @@ const canSubmitEInv = computed(() => !!lastSavedInvoice.value?._id);
           <div class="form-grid two">
             <div class="form-group">
               <label>ملاحظات</label>
-              <input type="text" v-model="form.notes" placeholder="اختياري" />
+              <textarea v-model="form.notes" rows="3" placeholder="اختياري"></textarea>
             </div>
           </div>
         </div>

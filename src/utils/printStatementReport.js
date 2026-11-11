@@ -11,6 +11,8 @@ export async function printStatementReport({
   title = "كشف حساب جاري",
   totalLabel = "*** إجمالي قيمة الفواتير ***",
   showTotal = true,
+  // ✅ اختياري: نص يُعرض في خانة المجموع بدل المبلغ (عرض فقط)
+  totalDisplay = null,
 }) {
   const fmtMoney = (n) => {
     const x = Number(n || 0);
@@ -297,7 +299,11 @@ export async function printStatementReport({
             showTotal
               ? `<tr class="totalsRow">
             <td colspan="${cols.length - 1}" class="totalsLabel">${esc(totalLabel)}</td>
-            <td class="right" dir="ltr">${totalValue}</td>
+            ${
+              totalDisplay != null
+                ? `<td class="center">${esc(totalDisplay)}</td>`
+                : `<td class="right" dir="ltr">${totalValue}</td>`
+            }
           </tr>`
               : `<tr class="totalsRow"><td colspan="${cols.length}" class="totalsLabel">*** العدد: ${(rows || []).length} ***</td></tr>`
           }
