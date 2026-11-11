@@ -298,11 +298,15 @@ export async function printStatementReport({
           ${
             showTotal
               ? `<tr class="totalsRow">
-            <td colspan="${cols.length - 1}" class="totalsLabel">${esc(totalLabel)}</td>
+            <td colspan="${cols.length - (Array.isArray(totalDisplay) ? totalDisplay.length : 1)}" class="totalsLabel">${esc(totalLabel)}</td>
             ${
-              totalDisplay != null
-                ? `<td class="center">${esc(totalDisplay)}</td>`
-                : `<td class="right" dir="ltr">${totalValue}</td>`
+              Array.isArray(totalDisplay)
+                ? totalDisplay
+                    .map((t) => `<td class="center">${esc(t)}</td>`)
+                    .join("")
+                : totalDisplay != null
+                  ? `<td class="center">${esc(totalDisplay)}</td>`
+                  : `<td class="right" dir="ltr">${totalValue}</td>`
             }
           </tr>`
               : `<tr class="totalsRow"><td colspan="${cols.length}" class="totalsLabel">*** العدد: ${(rows || []).length} ***</td></tr>`

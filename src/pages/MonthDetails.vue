@@ -18,6 +18,7 @@ const waybills = ref([]);
 const officeCommission = ref([]);
 
 const q = ref(""); // بحث داخل الشهر
+const showInvoicesMoneyTotal = ref(true); // ✅ إظهار مجموع قيم الفواتير في كشف الطباعة (افتراضياً مفعّل)
 const innerFrom = ref(""); // فلترة داخل الشهر (yyyy-mm-dd)
 const innerTo = ref(""); // فلترة داخل الشهر
 
@@ -128,7 +129,16 @@ async function printMonthStatement() {
   await printStatementReport({
     ...base,
     totalLabel: "*** المجموع ***",
-    totalDisplay: `عدد السيارات: ${vehiclesTotal}`,
+    // [خانة تحت "قيمة الفاتورة", خانة تحت "عدد السيارات"]
+    totalDisplay: [
+      showInvoicesMoneyTotal.value
+        ? `إجمالي قيمة الفواتير: ${Number(invSum.value || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 3,
+            maximumFractionDigits: 3,
+          })}`
+        : "",
+      `عدد السيارات: ${vehiclesTotal}`,
+    ],
     columns: [
       { key: "invoice_number", label: "رقم الفاتورة", cls: "center", dir: "ltr" },
       { key: "company", label: "اسم الشركة" },
@@ -433,6 +443,13 @@ watch([year, month], () => {
         >
           🖨️ طباعة كشف الحساب
         </button>
+        <label
+          v-if="tab === 'invoices'"
+          style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer"
+        >
+          <input type="checkbox" v-model="showInvoicesMoneyTotal" />
+          إظهار مجموع قيم الفواتير
+        </label>
         <button
           class="btn btn--secondary"
           :disabled="loading"
