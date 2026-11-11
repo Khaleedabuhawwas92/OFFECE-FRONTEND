@@ -443,9 +443,204 @@ app.get("/api/bot-status", (req, res) => {
   res.json({ running: !!botProcess, pid: botProcess ? botProcess.pid : null });
 });
 
+/* ======================= LIST PAGINATION HELPERS =======================
+   ✅ قوائم الشاشة الرئيسية (بوالص / فواتير / إرجاع): بحث + فلترة + فرز + skip/limit
+   على مستوى قاعدة البيانات. تُفعّل فقط عند تمرير ?page= — بدونها تبقى الاستجابة
+   مصفوفة كما كانت (تقارير الشهر و VoucherCreateModal تعتمد على ذلك).
+========================================================================= */
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parsePaging(query) {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(query.limit, 10) || 10));
+  return { page, limit };
+}
+
+// تحويل حقل تاريخ (Date أو نص بصيغ متعددة) إلى Date داخل MongoDB — نفس الصيغ
+// التي يدعمها toTimeOrNull في الواجهة. timezone = منطقة المستخدم للنصوص بلا منطقة.
+function parsedDateExpr(field, tz) {
+  const s = {
+    $convert: { input: `$${field}`, to: "string", onError: null, onNull: null },
+  };
+  const tzOpt = tz ? { timezone: tz } : {};
+  const tryFmt = (format, next) => ({
+    $dateFromString: {
+      dateString: "$$s",
+      ...(format ? { format } : {}),
+      ...tzOpt,
+      onError: next,
+      onNull: null,
+    },
+  });
+  return {
+    $let: {
+      vars: { s },
+      in: tryFmt(
+        "%Y-%m-%d",
+        tryFmt(
+          "%d-%m-%Y",
+          tryFmt("%Y/%m/%d", tryFmt("%d/%m/%Y", tryFmt(null, null))),
+        ),
+      ),
+    },
+  };
+}
+
+// فلترة مدى تاريخ — الصفوف التي لا يمكن قراءة تاريخها تبقى ظاهرة (نفس سلوك inDateRange)
+function dateRangeCondition(field, fromIso, toIso, tz) {
+  const from = fromIso ? new Date(fromIso) : null;
+  const to = toIso ? new Date(toIso) : null;
+  const hasFrom = from && Number.isFinite(from.getTime());
+  const hasTo = to && Number.isFinite(to.getTime());
+  if (!hasFrom && !hasTo) return null;
+
+  const safeTz = /^[+-]\d{2}:\d{2}$/.test(String(tz || "")) ? tz : null;
+  const d = parsedDateExpr(field, safeTz);
+  const conds = [];
+  if (hasFrom) conds.push({ $gte: [d, from] });
+  if (hasTo) conds.push({ $lte: [d, to] });
+  return {
+    $expr: { $or: [{ $eq: [d, null] }, { $and: conds }] },
+  };
+}
+
+function searchCondition(q, fields, numericFields = []) {
+  const text = String(q || "").trim();
+  if (!text) return null;
+  const rx = new RegExp(escapeRegex(text), "i");
+  const or = fields.map((f) => ({ [f]: rx }));
+  const n = Number(text);
+  if (Number.isFinite(n)) numericFields.forEach((f) => or.push({ [f]: n }));
+  return { $or: or };
+}
+
+function buildSort(query, allowed, fallbackKey) {
+  const key = allowed[query.sortKey] || allowed[fallbackKey];
+  const dir = String(query.sortDir || "desc").toLowerCase() === "asc" ? 1 : -1;
+  return { [key]: dir, _id: dir };
+}
+
+async function paginatedFind(Model, filter, sort, page, limit) {
+  const [data, total] = await Promise.all([
+    Model.find(filter)
+      .collation({ locale: "en", numericOrdering: true })
+      .sort(sort)
+      .skip((page - 1) * limit)
+      .limit(limit),
+    Model.countDocuments(filter),
+  ]);
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
+}
+
+const INVOICE_SEARCH_FIELDS = [
+  "invoice_number",
+  "company",
+  "date",
+  "notes",
+  "details_line1",
+  "details_line2",
+  "extra_details",
+  "driver_names_snapshot",
+  "vehicle_numbers_snapshot",
+  "originalInvoiceNumber",
+  "returnReason",
+  "einv_status",
+  "einv_num",
+  "einv.buyerName",
+  "einv.buyerTaxNo",
+];
+
+const INVOICE_SORT_KEYS = {
+  invoice_number: "invoice_number",
+  company: "company",
+  value_jod: "value_jod",
+  date: "date",
+  created_at: "created_at",
+};
+
+const WAYBILL_SEARCH_FIELDS = (() => {
+  const f = [
+    "waybillNumber",
+    "SERIAL_NO",
+    "DATE",
+    "SOURCE",
+    "CONSIGNOR_NAME",
+    "CONSIGNEE_NAME",
+    "DRIVER_NAME",
+    "driver_name",
+    "VEHICLE_NO",
+    "vehicle_no",
+    "GOODS_NATURE",
+    "TARIFF_CODE",
+    "MARKS",
+    "GROSS_WEIGHT",
+    "PACKAGES_COUNT",
+    "cashOnDeliveryNotes",
+    "NOTES",
+  ];
+  for (let i = 1; i <= 10; i++) f.push(`DRIVER${i}_NAME`, `VEHICLE${i}_NO`);
+  return f;
+})();
+
+const WAYBILL_SORT_KEYS = {
+  waybillNumber: "waybillNumber",
+  __SOURCE__: "SOURCE",
+  DATE: "DATE",
+  CONSIGNOR_NAME: "CONSIGNOR_NAME",
+  CONSIGNEE_NAME: "CONSIGNEE_NAME",
+  __VEHICLE__: "VEHICLE_NO",
+  __DRIVER__: "DRIVER1_NAME",
+  GOODS_NATURE: "GOODS_NATURE",
+  GROSS_WEIGHT: "GROSS_WEIGHT",
+  created_at: "created_at",
+};
+
+const BOT_SOURCE_RX = /^\s*bot\s*$/i;
+function waybillSourceCondition(src) {
+  const v = String(src || "ALL").toUpperCase();
+  const botOr = [
+    { SOURCE: BOT_SOURCE_RX },
+    { SOURCE: null, source: BOT_SOURCE_RX },
+  ];
+  if (v === "BOT") return { $or: botOr };
+  if (v === "MANUAL") return { $nor: botOr };
+  return null;
+}
+
+function andAll(conds) {
+  const list = conds.filter(Boolean);
+  if (!list.length) return {};
+  return list.length === 1 ? list[0] : { $and: list };
+}
+
 /* ======================= INVOICES ======================= */
 app.get("/api/invoices", async (req, res) => {
   try {
+    // ✅ وضع الترقيم من السيرفر (الشاشة الرئيسية: فواتير / إرجاع)
+    if (req.query.page !== undefined) {
+      const { page, limit } = parsePaging(req.query);
+      const kind = String(req.query.kind || "INVOICE").toUpperCase();
+      const dateField = req.query.dateField === "date" ? "date" : "created_at";
+      const filter = andAll([
+        kind === "CREDIT_NOTE"
+          ? { documentKind: "CREDIT_NOTE" }
+          : { documentKind: { $ne: "CREDIT_NOTE" } },
+        searchCondition(req.query.q, INVOICE_SEARCH_FIELDS, ["value_jod"]),
+        dateRangeCondition(dateField, req.query.from, req.query.to, req.query.tz),
+      ]);
+      const sort = buildSort(req.query, INVOICE_SORT_KEYS, "created_at");
+      return res.json(await paginatedFind(Invoice, filter, sort, page, limit));
+    }
+
+    // الوضع القديم (مصفوفة) — للتقارير والنوافذ الأخرى
     const { limit = 100 } = req.query;
     const invoices = await Invoice.find({})
       .sort({ created_at: -1 })
@@ -2298,6 +2493,20 @@ app.post("/api/einv/submit", async (req, res) => {
 /* ======================= WAYBILLS ======================= */
 app.get("/api/waybills", async (req, res) => {
   try {
+    // ✅ وضع الترقيم من السيرفر (الشاشة الرئيسية)
+    if (req.query.page !== undefined) {
+      const { page, limit } = parsePaging(req.query);
+      const dateField = req.query.dateField === "DATE" ? "DATE" : "created_at";
+      const filter = andAll([
+        searchCondition(req.query.q, WAYBILL_SEARCH_FIELDS),
+        waybillSourceCondition(req.query.source),
+        dateRangeCondition(dateField, req.query.from, req.query.to, req.query.tz),
+      ]);
+      const sort = buildSort(req.query, WAYBILL_SORT_KEYS, "created_at");
+      return res.json(await paginatedFind(Waybill, filter, sort, page, limit));
+    }
+
+    // الوضع القديم (مصفوفة) — للتقارير
     const { limit = 100 } = req.query;
     const waybills = await Waybill.find({})
       .sort({ created_at: -1 })

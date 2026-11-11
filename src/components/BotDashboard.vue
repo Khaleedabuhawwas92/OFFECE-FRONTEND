@@ -158,8 +158,20 @@ const loadingInvoices = ref(false);
 const loadingWaybills = ref(false);
 const loadingVouchers = ref(false);
 
-const invoices = ref([]);
-const waybills = ref([]);
+const invoices = ref([]); // ✅ الصفحة الحالية فقط (من السيرفر)
+const waybills = ref([]); // ✅ الصفحة الحالية فقط (من السيرفر)
+const returnInvoices = ref([]); // ✅ الصفحة الحالية فقط (من السيرفر)
+
+// ✅ إجماليات الترقيم من السيرفر
+const invTotal = ref(0);
+const invTotalPages = ref(1);
+const wbTotal = ref(0);
+const wbTotalPages = ref(1);
+const retPage = ref(1);
+const retPageSize = 10;
+const retTotal = ref(0);
+const retTotalPages = ref(1);
+const loadingReturns = ref(false);
 const vouchers = ref([]);
 
 const errorMessage = ref("");
@@ -181,6 +193,7 @@ function openReturnModal(inv) {
 }
 
 async function onReturnInvoiceCreated() {
+  fetchReturnInvoices();
   showReturnModal.value = false;
   await fetchInvoices();
 }
@@ -469,37 +482,15 @@ function sortRows(rows, state) {
 /* =========================
    Search + Pagination + Filters
 ========================= */
-const filteredInvoices = computed(() => {
-  // ✅ فواتير الإرجاع (CREDIT_NOTE) لها تبويبها الخاص "فواتير الإرجاع" —
-  // لا تُعرض ضمن تبويب الفواتير العادية
-  let base = (invoices.value || []).filter(
-    (inv) =>
-      inv.documentKind !== "CREDIT_NOTE" &&
-      rowMatchesSearch(inv, invoicesSearch.value),
-  );
-
-  const key = invDateMode.value; // created_at | date
-  base = base.filter((inv) => {
-    const rowTime = toTimeOrNull(inv?.[key]);
-    return inDateRange(rowTime, invDateFrom.value, invDateTo.value);
-  });
-
-  return sortRows(base, invSort.value);
-});
+// ✅ البحث/الفلترة/الفرز/الترقيم تتم في السيرفر — هنا فقط الصفحة الحالية
+const filteredInvoices = computed(() => invoices.value || []);
 
 /* =========================
    Return Invoices tab (فواتير الإرجاع — CREDIT_NOTE فقط)
 ========================= */
 const returnInvoicesSearch = ref("");
 
-const filteredReturnInvoices = computed(() => {
-  const base = (invoices.value || []).filter(
-    (inv) =>
-      inv.documentKind === "CREDIT_NOTE" &&
-      rowMatchesSearch(inv, returnInvoicesSearch.value),
-  );
-  return sortRows(base, { key: "created_at", dir: "desc" });
-});
+const filteredReturnInvoices = computed(() => returnInvoices.value || []);
 
 const einvSubmittingRow = ref(null); // _id الفاتورة الجاري إرسالها حالياً
 
@@ -508,86 +499,95 @@ async function submitReturnInvoiceToJofotara(inv) {
   einvSubmittingRow.value = inv._id;
   try {
     await axios.post(`${API_BASE}/api/einv/submit/${inv._id}`);
-    await fetchInvoices();
+    await fetchReturnInvoices();
   } catch (err) {
     console.error("einv submit error:", err);
     alert(
       "❌ فشل الإرسال إلى JoFotara: " +
         (err?.response?.data?.error || err?.response?.data?.message || err.message),
     );
-    await fetchInvoices();
+    await fetchReturnInvoices();
   } finally {
     einvSubmittingRow.value = null;
   }
 }
 
-const invTotalPages = computed(() => {
-  const total = filteredInvoices.value.length;
-  return Math.max(1, Math.ceil(total / invPageSize.value));
-});
-
-const pagedInvoices = computed(() => {
-  const start = (invPage.value - 1) * invPageSize.value;
-  const end = start + invPageSize.value;
-  return filteredInvoices.value.slice(start, end);
-});
-
-watch(
-  [invoicesSearch, invPageSize, invDateMode, invDateFrom, invDateTo],
-  () => {
-    invPage.value = 1;
-  },
-);
-watch(invTotalPages, (tp) => {
-  if (invPage.value > tp) invPage.value = tp;
-});
+const pagedInvoices = computed(() => invoices.value || []);
 
 // ===== Waybills
-const filteredWaybills = computed(() => {
-  let base = (waybills.value || []).filter((wb) =>
-    rowMatchesSearch(wb, waybillsSearch.value),
-  );
+const filteredWaybills = computed(() => waybills.value || []);
+const pagedWaybills = computed(() => waybills.value || []);
 
-  if (wbSourceFilter.value !== "ALL") {
-    base = base.filter((wb) => getWaybillSource(wb) === wbSourceFilter.value);
-  }
+/* =========================
+   Server-side list params + watchers
+========================= */
+function tzOffsetStr() {
+  const m = -new Date().getTimezoneOffset();
+  const a = Math.abs(m);
+  return `${m >= 0 ? "+" : "-"}${String(Math.floor(a / 60)).padStart(2, "0")}:${String(a % 60).padStart(2, "0")}`;
+}
 
-  const key = wbDateMode.value; // created_at | DATE
-  base = base.filter((wb) => {
-    const rowTime = toTimeOrNull(wb?.[key]);
-    return inDateRange(rowTime, wbDateFrom.value, wbDateTo.value);
-  });
+function dateRangeParams(fromStr, toStr) {
+  const out = {};
+  const ft = fromStr ? dayStart(fromStr) : null;
+  const tt = toStr ? dayEnd(toStr) : null;
+  if (ft != null) out.from = new Date(ft).toISOString();
+  if (tt != null) out.to = new Date(tt + 999).toISOString();
+  if (ft != null || tt != null) out.tz = tzOffsetStr();
+  return out;
+}
 
-  return sortRows(base, wbSort.value);
-});
+// تغيير البحث/الفلتر → الصفحة 1 (أو إعادة جلب إن كانت أصلاً 1)
+function resetPageOrFetch(pageRef, fetchFn) {
+  if (pageRef.value !== 1) pageRef.value = 1;
+  else fetchFn();
+}
 
-const wbTotalPages = computed(() => {
-  const total = filteredWaybills.value.length;
-  return Math.max(1, Math.ceil(total / wbPageSize.value));
-});
+function debounce(fn, ms = 300) {
+  let t = null;
+  return () => {
+    clearTimeout(t);
+    t = setTimeout(fn, ms);
+  };
+}
 
-const pagedWaybills = computed(() => {
-  const start = (wbPage.value - 1) * wbPageSize.value;
-  const end = start + wbPageSize.value;
-  return filteredWaybills.value.slice(start, end);
-});
+const debouncedInvSearch = debounce(() => resetPageOrFetch(invPage, fetchInvoices));
+const debouncedWbSearch = debounce(() => resetPageOrFetch(wbPage, fetchWaybills));
+const debouncedRetSearch = debounce(() =>
+  resetPageOrFetch(retPage, fetchReturnInvoices),
+);
 
+watch(invoicesSearch, debouncedInvSearch);
 watch(
   [
-    waybillsSearch,
+    invPageSize,
+    invDateMode,
+    invDateFrom,
+    invDateTo,
+    () => invSort.value.key,
+    () => invSort.value.dir,
+  ],
+  () => resetPageOrFetch(invPage, fetchInvoices),
+);
+watch(invPage, () => fetchInvoices());
+
+watch(waybillsSearch, debouncedWbSearch);
+watch(
+  [
     wbSourceFilter,
     wbPageSize,
     wbDateMode,
     wbDateFrom,
     wbDateTo,
+    () => wbSort.value.key,
+    () => wbSort.value.dir,
   ],
-  () => {
-    wbPage.value = 1;
-  },
+  () => resetPageOrFetch(wbPage, fetchWaybills),
 );
-watch(wbTotalPages, (tp) => {
-  if (wbPage.value > tp) wbPage.value = tp;
-});
+watch(wbPage, () => fetchWaybills());
+
+watch(returnInvoicesSearch, debouncedRetSearch);
+watch(retPage, () => fetchReturnInvoices());
 
 // ===== Vouchers ✅
 const filteredVouchers = computed(() => {
@@ -658,32 +658,112 @@ async function fetchReturnsSummary() {
   }
 }
 
+// ✅ يمنع وصول استجابة قديمة بعد استجابة أحدث (بحث سريع)
+let invReqSeq = 0;
+let wbReqSeq = 0;
+let retReqSeq = 0;
+
+// إذا أصبحت الصفحة الحالية فارغة (بعد حذف مثلاً) → انتقل لآخر صفحة موجودة
+function clampPage(pageRef, data) {
+  if (!data.data?.length && data.total > 0 && pageRef.value > data.totalPages) {
+    pageRef.value = data.totalPages;
+    return true;
+  }
+  return false;
+}
+
 async function fetchInvoices() {
+  const seq = ++invReqSeq;
   loadingInvoices.value = true;
   errorMessage.value = "";
   try {
-    const res = await axios.get(`${API_BASE}/api/invoices?limit=200`);
-    invoices.value = Array.isArray(res.data) ? res.data : [];
+    const res = await axios.get(`${API_BASE}/api/invoices`, {
+      params: {
+        page: invPage.value,
+        limit: invPageSize.value,
+        kind: "INVOICE",
+        q: invoicesSearch.value.trim() || undefined,
+        dateField: invDateMode.value,
+        sortKey: invSort.value.key,
+        sortDir: invSort.value.dir,
+        ...dateRangeParams(invDateFrom.value, invDateTo.value),
+      },
+    });
+    if (seq !== invReqSeq) return;
+    const d = res.data || {};
+    if (clampPage(invPage, d)) return;
+    invoices.value = Array.isArray(d.data) ? d.data : [];
+    invTotal.value = Number(d.total) || 0;
+    invTotalPages.value = Number(d.totalPages) || 1;
     await fetchReturnsSummary();
   } catch (err) {
+    if (seq !== invReqSeq) return;
     console.error("invoices error:", err);
     errorMessage.value = "تعذّر تحميل الفواتير.";
   } finally {
-    loadingInvoices.value = false;
+    if (seq === invReqSeq) loadingInvoices.value = false;
+  }
+}
+
+async function fetchReturnInvoices() {
+  const seq = ++retReqSeq;
+  loadingReturns.value = true;
+  errorMessage.value = "";
+  try {
+    const res = await axios.get(`${API_BASE}/api/invoices`, {
+      params: {
+        page: retPage.value,
+        limit: retPageSize,
+        kind: "CREDIT_NOTE",
+        q: returnInvoicesSearch.value.trim() || undefined,
+        sortKey: "created_at",
+        sortDir: "desc",
+      },
+    });
+    if (seq !== retReqSeq) return;
+    const d = res.data || {};
+    if (clampPage(retPage, d)) return;
+    returnInvoices.value = Array.isArray(d.data) ? d.data : [];
+    retTotal.value = Number(d.total) || 0;
+    retTotalPages.value = Number(d.totalPages) || 1;
+  } catch (err) {
+    if (seq !== retReqSeq) return;
+    console.error("return invoices error:", err);
+    errorMessage.value = "تعذّر تحميل فواتير الإرجاع.";
+  } finally {
+    if (seq === retReqSeq) loadingReturns.value = false;
   }
 }
 
 async function fetchWaybills() {
+  const seq = ++wbReqSeq;
   loadingWaybills.value = true;
   errorMessage.value = "";
   try {
-    const res = await axios.get(`${API_BASE}/api/waybills?limit=200`);
-    waybills.value = Array.isArray(res.data) ? res.data : [];
+    const res = await axios.get(`${API_BASE}/api/waybills`, {
+      params: {
+        page: wbPage.value,
+        limit: wbPageSize.value,
+        q: waybillsSearch.value.trim() || undefined,
+        source: wbSourceFilter.value,
+        dateField: wbDateMode.value,
+        sortKey: wbSort.value.key,
+        sortDir: wbSort.value.dir,
+        ...dateRangeParams(wbDateFrom.value, wbDateTo.value),
+      },
+    });
+    if (seq !== wbReqSeq) return;
+    const d = res.data || {};
+    if (clampPage(wbPage, d)) return;
+    waybills.value = Array.isArray(d.data) ? d.data : [];
+    wbTotal.value = Number(d.total) || 0;
+    wbTotalPages.value = Number(d.totalPages) || 1;
   } catch (err) {
+    if (seq !== wbReqSeq) return;
     console.error("waybills error:", err);
     errorMessage.value = "تعذّر تحميل وثائق النقل.";
   } finally {
-    loadingWaybills.value = false;
+    if (seq === wbReqSeq) loadingWaybills.value = false;
   }
 }
 
@@ -970,7 +1050,12 @@ function buildVoucherHtml(v) {
       .map((a) => {
         const invNo = esc(a?.invoice_number ?? a?.invoice_no ?? "-");
         const invId = a?.invoice_id?._id ?? a?.invoice_id;
-        const inv = invoices.value.find((x) => toIdStr(x) === toIdStr(invId));
+        const populated =
+          a?.invoice_id && typeof a.invoice_id === "object" && "value_jod" in a.invoice_id
+            ? a.invoice_id
+            : null;
+        const inv =
+          populated || invoices.value.find((x) => toIdStr(x) === toIdStr(invId));
         const invDate = esc(inv?.date) || "-";
         const invValue = Number(inv?.value_jod ?? 0).toFixed(3);
         const allocAmt = Number(a?.amount || 0).toFixed(3);
@@ -1174,10 +1259,16 @@ watch(
     const t = String(route.query.type || "").toLowerCase();
 
     if (t === "waybill") await fetchWaybills();
-    else if (t === "invoice") await fetchInvoices();
+    else if (t === "invoice")
+      await Promise.all([fetchInvoices(), fetchReturnInvoices()]);
     else if (t === "voucher") await fetchVouchers();
     else {
-      await Promise.all([fetchInvoices(), fetchWaybills(), fetchVouchers()]);
+      await Promise.all([
+        fetchInvoices(),
+        fetchReturnInvoices(),
+        fetchWaybills(),
+        fetchVouchers(),
+      ]);
     }
 
     router.replace({ path: route.path, query: {} });
@@ -1209,6 +1300,7 @@ async function onVoucherCreated() {
 onMounted(async () => {
   fetchBotStatus();
   fetchInvoices();
+  fetchReturnInvoices();
   fetchWaybills();
   fetchVouchers();
   fetchDashboardStats();
@@ -1301,7 +1393,7 @@ onMounted(async () => {
         @click="activeTab = 'waybills'"
       >
         <span class="tab-label">وثائق النقل</span>
-        <span class="tab-badge">{{ filteredWaybills.length }}</span>
+        <span class="tab-badge">{{ wbTotal }}</span>
       </button>
 
       <button
@@ -1310,7 +1402,7 @@ onMounted(async () => {
         @click="activeTab = 'invoices'"
       >
         <span class="tab-label">فواتير التصدير</span>
-        <span class="tab-badge">{{ filteredInvoices.length }}</span>
+        <span class="tab-badge">{{ invTotal }}</span>
       </button>
 
       <button
@@ -1319,7 +1411,7 @@ onMounted(async () => {
         @click="activeTab = 'returns'"
       >
         <span class="tab-label">فواتير الإرجاع</span>
-        <span class="tab-badge">{{ filteredReturnInvoices.length }}</span>
+        <span class="tab-badge">{{ retTotal }}</span>
       </button>
     </nav>
 
@@ -1356,7 +1448,7 @@ onMounted(async () => {
           جاري تحميل الفواتير...
         </div>
 
-        <div v-else class="table-card">
+        <div class="table-card">
           <!-- tools ... (نفس كودك بدون تغيير) -->
           <div class="table-tools">
             <div class="search-wrap">
@@ -1545,7 +1637,7 @@ onMounted(async () => {
             </button>
             <div class="pager-info">
               صفحة {{ invPage }} / {{ invTotalPages }}
-              <span class="muted"> ({{ filteredInvoices.length }} نتيجة)</span>
+              <span class="muted"> ({{ invTotal }} نتيجة)</span>
             </div>
             <button
               class="btn btn--secondary"
@@ -1576,19 +1668,19 @@ onMounted(async () => {
           <div class="header-actions">
             <button
               class="btn btn--secondary"
-              @click="fetchInvoices"
-              :disabled="loadingInvoices"
+              @click="fetchReturnInvoices"
+              :disabled="loadingReturns"
             >
               🔄 تحديث
             </button>
           </div>
         </div>
 
-        <div v-if="loadingInvoices" class="status-text">
+        <div v-if="loadingReturns" class="status-text">
           جاري تحميل فواتير الإرجاع...
         </div>
 
-        <div v-else class="table-card">
+        <div class="table-card">
           <div class="table-tools">
             <div class="search-wrap">
               <input
@@ -1679,6 +1771,27 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
+
+          <div class="pager">
+            <button
+              class="btn btn--secondary"
+              :disabled="retPage <= 1"
+              @click="retPage--"
+            >
+              ◀ السابق
+            </button>
+            <div class="pager-info">
+              صفحة {{ retPage }} / {{ retTotalPages }}
+              <span class="muted"> ({{ retTotal }} نتيجة)</span>
+            </div>
+            <button
+              class="btn btn--secondary"
+              :disabled="retPage >= retTotalPages"
+              @click="retPage++"
+            >
+              التالي ▶
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1711,7 +1824,7 @@ onMounted(async () => {
           جاري تحميل وثائق النقل...
         </div>
 
-        <div v-else class="table-card">
+        <div class="table-card">
           <div class="table-tools">
             <div class="search-wrap">
               <input
@@ -1899,7 +2012,7 @@ onMounted(async () => {
             </button>
             <div class="pager-info">
               صفحة {{ wbPage }} / {{ wbTotalPages }}
-              <span class="muted"> ({{ filteredWaybills.length }} نتيجة)</span>
+              <span class="muted"> ({{ wbTotal }} نتيجة)</span>
             </div>
             <button
               class="btn btn--secondary"

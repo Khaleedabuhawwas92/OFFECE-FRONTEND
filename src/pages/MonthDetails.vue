@@ -52,14 +52,66 @@ function formatDateTime(iso) {
   return `${yyyy}-${mm}-${dd} ${hhStr}:${min} ${ampm}`;
 }
 
+// ✅ الطباعة تستخدم نفس الصفوف المفلترة الظاهرة على الشاشة حسب التبويب
+// الحالي (shownInvoices / shownWaybills / shownCommission) — بدون إعادة جلب.
 async function printMonthStatement() {
-  const { from, to } = monthStartEndISO(year.value, month.value);
+  const range = monthStartEndISO(year.value, month.value);
+  const periodFrom = innerFrom.value || range.from;
+  const periodTo = innerTo.value || range.to;
+  const base = { customerName: "كشف حساب الشهر", customerAddress: "", periodFrom, periodTo };
+
+  if (tab.value === "waybills") {
+    await printStatementReport({
+      ...base,
+      title: "كشف البوالص",
+      showTotal: false,
+      columns: [
+        { key: "serial", label: "رقم البوليصة", cls: "center", dir: "ltr" },
+        { key: "date", label: "التاريخ", cls: "center", dir: "ltr" },
+        { key: "consignor", label: "المرسل" },
+        { key: "consignee", label: "المرسل إليه" },
+        { key: "vehicles", label: "المركبة", cls: "center", dir: "ltr" },
+        { key: "drivers", label: "السائق" },
+      ],
+      rows: shownWaybills.value.map((wb) => ({
+        serial: wb.waybillNumber || wb.SERIAL_NO || "",
+        date: wb.DATE || String(wb.created_at || "").slice(0, 10),
+        consignor: wb.CONSIGNOR_NAME || "",
+        consignee: wb.CONSIGNEE_NAME || "",
+        vehicles: getWaybillVehiclesOnly(wb).join("\n"),
+        drivers: getWaybillDriversOnly(wb).join("\n"),
+      })),
+    });
+    return;
+  }
+
+  if (tab.value === "commission") {
+    await printStatementReport({
+      ...base,
+      title: "كشف عمولة المكتب",
+      totalLabel: "*** إجمالي العمولة ***",
+      columns: [
+        { key: "invoice_number", label: "رقم الفاتورة", cls: "center", dir: "ltr" },
+        { key: "company", label: "الشركة" },
+        { key: "description", label: "البيان" },
+        { key: "currency", label: "العملة", cls: "center" },
+        { key: "date", label: "التاريخ", cls: "center", dir: "ltr" },
+        { key: "value", label: "المبلغ", cls: "right", dir: "ltr", money: true },
+      ],
+      rows: shownCommission.value.map((r) => ({
+        invoice_number: r.invoice_number ?? "",
+        company: r.company ?? "",
+        description: r.description ?? "",
+        currency: r.currency ?? "",
+        date: String(r.date || "").slice(0, 10),
+        value: r.commission_amount ?? 0,
+      })),
+    });
+    return;
+  }
 
   await printStatementReport({
-    customerName: "كشف حساب الشهر",
-    customerAddress: "", // إذا بدك عنوان العميل/الشركة
-    periodFrom: from,
-    periodTo: to,
+    ...base,
     rows: shownInvoices.value.map((x) => ({
       invoice_number: x.invoice_number ?? "",
       company: x.company ?? "",

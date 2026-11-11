@@ -5,6 +5,12 @@ export async function printStatementReport({
   periodFrom = "",
   periodTo = "",
   rows = [], // [{ invoice_number, company, created_at, value }]
+  // ✅ اختياري: أعمدة مخصّصة لطباعة نفس الصفوف الظاهرة (بوالص/عمولة...)
+  // [{ key, label, cls?, dir? }] — الافتراضي أعمدة الفواتير الأصلية
+  columns = null,
+  title = "كشف حساب جاري",
+  totalLabel = "*** إجمالي قيمة الفواتير ***",
+  showTotal = true,
 }) {
   const fmtMoney = (n) => {
     const x = Number(n || 0);
@@ -22,16 +28,29 @@ export async function printStatementReport({
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
+  const cols =
+    Array.isArray(columns) && columns.length
+      ? columns
+      : [
+          { key: "invoice_number", label: "رقم الفاتورة", cls: "center", dir: "ltr" },
+          { key: "company", label: "اسم الشركة" },
+          { key: "created_at", label: "تاريخ الإدخال", cls: "center", dir: "ltr" },
+          { key: "value", label: "قيمة الفاتورة", cls: "right", dir: "ltr", money: true },
+        ];
+
+  const headHtml = cols.map((c) => `<th>${esc(c.label)}</th>`).join("");
+
   const rowsHtml = (rows || [])
     .map((r) => {
-      return `
-        <tr>
-          <td class="center" dir="ltr">${esc(r.invoice_number)}</td>
-          <td>${esc(r.company)}</td>
-          <td class="center" dir="ltr">${esc(r.created_at)}</td>
-          <td class="right" dir="ltr">${fmtMoney(r.value)}</td>
-        </tr>
-      `.trim();
+      const tds = cols
+        .map((c) => {
+          const cls = c.cls ? ` class="${c.cls}"` : "";
+          const dir = c.dir ? ` dir="${c.dir}"` : "";
+          const v = c.money ? fmtMoney(r[c.key]) : esc(r[c.key]);
+          return `<td${cls}${dir} style="white-space:pre-line">${v}</td>`;
+        })
+        .join("");
+      return `<tr>${tds}</tr>`;
     })
     .join("\n");
 
@@ -48,7 +67,7 @@ export async function printStatementReport({
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>كشف حساب جاري</title>
+    <title>${esc(title)}</title>
 
     <style>
       :root {
@@ -247,7 +266,7 @@ export async function printStatementReport({
         </div>
 
         <div class="titleBlock">
-          <div class="title">كشف حساب جاري</div>
+          <div class="title">${esc(title)}</div>
           <div class="pageNo">الصفحة: ${PAGE_NO} من ${PAGE_TOTAL}</div>
         </div>
       </div>
@@ -268,21 +287,20 @@ export async function printStatementReport({
 
       <table class="statement">
         <thead>
-          <tr>
-            <th>رقم الفاتورة</th>
-            <th>اسم الشركة</th>
-            <th>تاريخ الإدخال</th>
-            <th>قيمة الفاتورة</th>
-          </tr>
+          <tr>${headHtml}</tr>
         </thead>
 
         <tbody>
-          ${rowsHtml || `<tr><td colspan="4" class="center">لا يوجد بيانات</td></tr>`}
+          ${rowsHtml || `<tr><td colspan="${cols.length}" class="center">لا يوجد بيانات</td></tr>`}
 
-          <tr class="totalsRow">
-            <td colspan="3" class="totalsLabel">*** إجمالي قيمة الفواتير ***</td>
+          ${
+            showTotal
+              ? `<tr class="totalsRow">
+            <td colspan="${cols.length - 1}" class="totalsLabel">${esc(totalLabel)}</td>
             <td class="right" dir="ltr">${totalValue}</td>
-          </tr>
+          </tr>`
+              : `<tr class="totalsRow"><td colspan="${cols.length}" class="totalsLabel">*** العدد: ${(rows || []).length} ***</td></tr>`
+          }
         </tbody>
       </table>
     </div>
